@@ -152,3 +152,5 @@ extern volatile struct limine_kernel_file_request kernel_file_request;
 
 extern void *limine_requests_start_marker;
 extern void *limine_requests_end_marker;
+
+#endif
