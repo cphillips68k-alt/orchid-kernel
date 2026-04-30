@@ -24,8 +24,8 @@ cd ..
 rm -rf iso_root
 mkdir -p iso_root/boot
 
-# Copy kernel to ISO root
-cp kernel.elf iso_root/
+# Copy kernel to /boot inside ISO
+cp kernel.elf iso_root/boot/
 
 cat > iso_root/boot/limine.conf << 'EOF'
 TIMEOUT: 0
@@ -33,7 +33,7 @@ verbose: yes
 
 /Orchid Microkernel
     protocol: limine
-    kernel_path: /kernel.elf
+    kernel_path: boot:///boot/kernel.elf
 EOF
 
 # Copy Limine boot files
@@ -52,9 +52,9 @@ xorriso -as mkisofs -b boot/limine-bios-cd.bin \
 # Deploy Limine onto the ISO
 ./limine/limine bios-install orchid.iso
 
-# Quick check: list ISO root to confirm kernel.elf is there
+# Confirm kernel location inside ISO
 echo "=== ISO contents ==="
-xorriso -osirrox on -indev orchid.iso -ls / 2>/dev/null || true
+xorriso -indev orchid.iso -ls /boot/ 2>/dev/null
 
 echo "=== Booting Orchid ==="
 qemu-system-x86_64 \
