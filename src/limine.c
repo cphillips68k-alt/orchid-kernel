@@ -13,3 +13,11 @@ volatile struct limine_kernel_file_request __attribute__((section(".limine_reque
 
 void *limine_requests_start_marker = 0;
 void *limine_requests_end_marker = 0;
+
+__attribute__((section(".limine_kernel_info")))
+struct limine_kernel_info kernel_info = {
+    .magic = LIMINE_KERNEL_INFO_MAGIC,
+    .revision = 0,
+    .requests_start = &limine_requests_start_marker,
+    .requests_end = &limine_requests_end_marker
+};

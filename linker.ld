@@ -15,11 +15,14 @@ SECTIONS
     /* Base address - where Limine will load us */
     . = 0xffffffff80000000;
 
-    /* Limine requests must be first, within the first 4KB */
     .limine_requests : {
         KEEP(*(.limine_requests))
         KEEP(*(.limine_requests_end_marker))
         KEEP(*(.limine_requests_start_marker))
+    } :limine_requests
+
+    .limine_kernel_info : {
+        KEEP(*(.limine_kernel_info))
     } :limine_requests
 
     . = ALIGN(4K);

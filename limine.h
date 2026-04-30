@@ -153,4 +153,14 @@ extern volatile struct limine_kernel_file_request kernel_file_request;
 extern void *limine_requests_start_marker;
 extern void *limine_requests_end_marker;
 
+/* Kernel info structure required by Limine v8+ */
+struct limine_kernel_info {
+    uint64_t magic;
+    uint64_t revision;
+    void *requests_start;
+    void *requests_end;
+};
+
+#define LIMINE_KERNEL_INFO_MAGIC 0x11cf02eb4db3c5ce
+
 #endif
