@@ -18,7 +18,7 @@ KERNEL_BIN = kernel.elf
 
 all: $(KERNEL_BIN)
 
-SRC = src/main.c src/serial.c src/console.c
+SRC = src/main.c src/serial.c src/console.c src/limine.c
 OBJ = $(SRC:.c=.o)
 
 %.o: %.c

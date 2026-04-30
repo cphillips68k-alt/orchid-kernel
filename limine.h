@@ -144,19 +144,11 @@ struct limine_kernel_file_request {
 };
 
 /* These are set up before _start, Limine fills them in */
-volatile struct limine_framebuffer_request __attribute__((section(".limine_requests"))) 
-    framebuffer_request = { LIMINE_FRAMEBUFFER_REQUEST, 0, 0 };
-volatile struct limine_memmap_request __attribute__((section(".limine_requests"))) 
-    memmap_request = { LIMINE_MEMMAP_REQUEST, 0, 0 };
-volatile struct limine_hhdm_request __attribute__((section(".limine_requests"))) 
-    hhdm_request = { LIMINE_HHDM_REQUEST, 0, 0 };
-volatile struct limine_rsdp_request __attribute__((section(".limine_requests"))) 
-    rsdp_request = { LIMINE_RSDP_REQUEST, 0, 0 };
-volatile struct limine_kernel_file_request __attribute__((section(".limine_requests"))) 
-    kernel_file_request = { LIMINE_KERNEL_FILE_REQUEST, 0, 0 };
+extern volatile struct limine_framebuffer_request framebuffer_request;
+extern volatile struct limine_memmap_request memmap_request;
+extern volatile struct limine_hhdm_request hhdm_request;
+extern volatile struct limine_rsdp_request rsdp_request;
+extern volatile struct limine_kernel_file_request kernel_file_request;
 
-/* Make the linker happy by providing section markers */
-void *limine_requests_start_marker = 0;
-void *limine_requests_end_marker = 0;
-
-#endif
+extern void *limine_requests_start_marker;
+extern void *limine_requests_end_marker;
