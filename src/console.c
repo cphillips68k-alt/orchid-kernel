@@ -238,8 +238,6 @@ static void draw_char(char c, uint64_t px, uint64_t py, uint32_t fg, uint32_t bg
 /* Scroll the screen up by one line */
 static void scroll(void) {
     uint64_t line_bytes = fb_pitch;
-    uint64_t font_line_bytes = FONT_HEIGHT * line_bytes;
-
     /* Move everything up one character row */
     unsigned char *video = (unsigned char *)fb_addr;
     for (uint64_t row = FONT_HEIGHT; row < fb_height; row++) {
