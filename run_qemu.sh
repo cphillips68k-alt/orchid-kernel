@@ -31,7 +31,7 @@ cat > iso_root/boot/limine.conf << 'EOF'
 TIMEOUT=0
 VERBOSE=yes
 
-/:Orchid Microkernel
+/Orchid Microkernel
     PROTOCOL=limine
     KERNEL_PATH=boot:///boot/kernel.elf
 EOF
