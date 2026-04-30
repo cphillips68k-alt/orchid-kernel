@@ -24,16 +24,17 @@ cd ..
 rm -rf iso_root
 mkdir -p iso_root/boot
 
-# Copy kernel and config
-cp kernel.elf iso_root/boot/
+# Copy kernel to ISO root (not /boot) for simpler path
+cp kernel.elf iso_root/
 
+# Limine config
 cat > iso_root/boot/limine.conf << 'EOF'
 TIMEOUT: 0
-VERBOSE: yes
+verbose: yes
 
 /Orchid Microkernel
     protocol: limine
-    kernel_path: boot:///boot/kernel.elf
+    kernel_path: boot:///kernel.elf
 EOF
 
 # Copy Limine boot files
