@@ -36,20 +36,24 @@ void kernel_panic(const char *msg) {
 void _start(void) {
     /* --- Fetch Limine responses --- */
 
-    /* Framebuffer */
-    struct limine_framebuffer_response *fb_resp = framebuffer_request.response;
+       /* Framebuffer */
+    struct limine_framebuffer_response *fb_resp = 
+        (struct limine_framebuffer_response *)framebuffer_request.response;
     struct limine_framebuffer *fb = NULL;
     if (fb_resp != NULL && fb_resp->framebuffer_count > 0) {
         fb = fb_resp->framebuffers[0];
     }
 
     /* Memory map */
-    struct limine_memmap_response *mm_resp = memmap_request.response;
+    struct limine_memmap_response *mm_resp = 
+        (struct limine_memmap_response *)memmap_request.response;
 
     /* HHDM offset for physical memory access */
     uint64_t hhdm_offset = 0;
-    if (hhdm_request.response != NULL) {
-        hhdm_offset = hhdm_request.response->offset;
+    struct limine_hhdm_response *hhdm_resp = 
+        (struct limine_hhdm_response *)hhdm_request.response;
+    if (hhdm_resp != NULL) {
+        hhdm_offset = hhdm_resp->offset;
     }
 
     /* --- Initialize core subsystems --- */
