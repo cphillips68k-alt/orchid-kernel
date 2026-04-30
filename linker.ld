@@ -4,7 +4,7 @@ ENTRY(_start)
 
 PHDRS
 {
-    limine_requests PT_LOAD FLAGS(1);
+    limine_requests PT_LOAD FLAGS(4);  /* Read */
     text            PT_LOAD FLAGS(5);  /* Read + Execute */
     rodata          PT_LOAD FLAGS(4);  /* Read */
     data            PT_LOAD FLAGS(6);  /* Read + Write */
