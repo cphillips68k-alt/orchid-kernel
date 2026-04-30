@@ -1,14 +1,12 @@
-# Orchid Microkernel Makefile - system GCC version for quick boot test
-
 CC = gcc
 LD = ld
 
 CFLAGS = -std=c11 -ffreestanding -mno-red-zone -mno-mmx -mno-sse \
          -mno-sse2 -Wall -Wextra -O2 -g -pipe \
-         -mcmodel=kernel -mgeneral-regs-only -nostdinc \
-         -isystem /usr/lib/gcc/x86_64-linux-gnu/$(gcc -dumpversion)/include
+         -mcmodel=kernel -mgeneral-regs-only -nostdinc -fno-PIE \
+		 -fno-pic -fno-pie
 
-LDFLAGS = -nostdlib -T linker.ld -static
+LDFLAGS = -nostdlib -T linker.ld -static -no-pie
 
 KERNEL_BIN = kernel.elf
 
