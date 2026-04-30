@@ -2,7 +2,9 @@
 #ifndef LIMINE_H
 #define LIMINE_H
 
-/* Request/response IDs - must be reverse for 64-bit */
+#include <stdint.h>
+
+/* Request/response IDs - must be reversed for 64-bit */
 #define LIMINE_FRAMEBUFFER_REQUEST       {0x9d5827dcd881dd75, 0xa3148604f6fab11b}
 #define LIMINE_MEMMAP_REQUEST            {0x67cf3d9d378a806f, 0xe304acdfc50c3c62}
 #define LIMINE_RSDP_REQUEST              {0xc5e77b6b397e7b43, 0x27637845accdcf3}
@@ -11,13 +13,7 @@
 #define LIMINE_EFI_SYSTEM_TABLE_REQUEST  {0x5ceba5163eaaf6d6, 0x0a6981610cf65fcc}
 #define LIMINE_KERNEL_FILE_REQUEST       {0xad97e90e83f1ed67, 0x31eb5d1c5ff23b69}
 #define LIMINE_MODULE_REQUEST            {0x3e7e279702be32af, 0xca1c4f3bd1280cee}
-
-/* Common types */
-typedef unsigned long long uint64_t;
-typedef unsigned int       uint32_t;
-typedef unsigned short      uint16_t;
-typedef unsigned char       uint8_t;
-typedef long long           int64_t;
+#define LIMINE_HHDM_REQUEST              {0x48dcf1cb8ad2b852, 0x63984e959a98244b}
 
 /* Generic request/response header */
 struct limine_request {
@@ -48,6 +44,12 @@ struct limine_framebuffer_response {
     struct limine_framebuffer **framebuffers;
 };
 
+struct limine_framebuffer_request {
+    uint64_t id[4];
+    uint64_t revision;
+    void    *response;
+};
+
 /* Memory map */
 struct limine_memmap_entry {
     uint64_t base;
@@ -70,16 +72,34 @@ struct limine_memmap_response {
     struct limine_memmap_entry **entries;
 };
 
+struct limine_memmap_request {
+    uint64_t id[4];
+    uint64_t revision;
+    void    *response;
+};
+
+/* HHDM */
+struct limine_hhdm_response {
+    uint64_t revision;
+    uint64_t offset;
+};
+
+struct limine_hhdm_request {
+    uint64_t id[4];
+    uint64_t revision;
+    void    *response;
+};
+
 /* RSDP */
 struct limine_rsdp_response {
     uint64_t revision;
     void    *address;
 };
 
-/* HHDM (Higher Half Direct Map) offset */
-struct limine_hhdm_response {
+struct limine_rsdp_request {
+    uint64_t id[4];
     uint64_t revision;
-    uint64_t offset;
+    void    *response;
 };
 
 /* SMP */
@@ -103,18 +123,6 @@ struct limine_smp_response {
     struct limine_smp_info **cpus;
 };
 
-/* Boot time */
-struct limine_boot_time_response {
-    uint64_t revision;
-    int64_t  boot_time;
-};
-
-/* EFI system table */
-struct limine_efi_system_table_response {
-    uint64_t revision;
-    void    *address;
-};
-
 /* Kernel file */
 struct limine_file {
     uint64_t revision;
@@ -129,11 +137,10 @@ struct limine_kernel_file_response {
     struct limine_file *kernel_file;
 };
 
-/* Module */
-struct limine_module_response {
-    uint64_t             revision;
-    uint64_t             module_count;
-    struct limine_file **modules;
+struct limine_kernel_file_request {
+    uint64_t id[4];
+    uint64_t revision;
+    void    *response;
 };
 
 /* These are set up before _start, Limine fills them in */
@@ -142,7 +149,7 @@ volatile struct limine_framebuffer_request __attribute__((section(".limine_reque
 volatile struct limine_memmap_request __attribute__((section(".limine_requests"))) 
     memmap_request = { LIMINE_MEMMAP_REQUEST, 0, 0 };
 volatile struct limine_hhdm_request __attribute__((section(".limine_requests"))) 
-    hhdm_request = { {0x48dcf1cb8ad2b852, 0x63984e959a98244b}, 0, 0 };  /* LIMINE_HHDM_REQUEST */
+    hhdm_request = { LIMINE_HHDM_REQUEST, 0, 0 };
 volatile struct limine_rsdp_request __attribute__((section(".limine_requests"))) 
     rsdp_request = { LIMINE_RSDP_REQUEST, 0, 0 };
 volatile struct limine_kernel_file_request __attribute__((section(".limine_requests"))) 
