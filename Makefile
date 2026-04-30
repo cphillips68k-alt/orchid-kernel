@@ -1,10 +1,14 @@
 CC = gcc
 LD = ld
 
+GCC_INCLUDE = /usr/lib/gcc/x86_64-linux-gnu/14/include
+
 CFLAGS = -std=c11 -ffreestanding -mno-red-zone -mno-mmx -mno-sse \
          -mno-sse2 -Wall -Wextra -O2 -g -pipe \
-         -mcmodel=kernel -mgeneral-regs-only -nostdinc -fno-PIE \
-		 -fno-pic -fno-pie
+         -mcmodel=kernel -mgeneral-regs-only -fno-PIE \
+         -fno-pic -fno-pie \
+         -isystem $(GCC_INCLUDE) \
+         -I.
 
 LDFLAGS = -nostdlib -T linker.ld -static -no-pie
 
