@@ -3,10 +3,10 @@
 #include <stdint.h>
 
 typedef struct thread {
-    uint64_t rsp;            // saved stack pointer
-    uint64_t kernel_stack;   // base of stack (for freeing later)
+    uint64_t rsp;            /* saved stack pointer */
+    uint64_t kernel_stack;   /* base of stack (for freeing later) */
     int state;
-    // linked list node
+    /* linked list node */
     struct thread *next;
 } thread_t;
 
@@ -20,5 +20,6 @@ thread_t *thread_create(void (*entry)(void), const char *name);
 void schedule(void);
 void switch_to(thread_t *next);
 void enable_interrupts(void);
+void thread_exit(void);
 
 #endif

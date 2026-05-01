@@ -2,26 +2,29 @@
 #include "serial.h"
 #include "limine.h"
 #include <stdarg.h>
+#include <stddef.h>
 
 /* Framebuffer state - only shared within this file */
 static struct limine_framebuffer *fb;
 static uint32_t *fb_addr;
 static uint64_t fb_width;
 static uint64_t fb_height;
-static uint64_t fb_pitch;  /* bytes per scanline */
+static uint64_t fb_pitch;          /* bytes per scanline */
 static uint64_t fb_pixels_per_line;
 
 /* Cursor state */
 static uint64_t cursor_x;
 static uint64_t cursor_y;
 
-/* Font dimensions - we're using a built-in 8x16 bitmap font */
+/* Font dimensions - built-in 8x16 bitmap font */
 #define FONT_WIDTH  8
 #define FONT_HEIGHT 16
 
-/* A minimal 8x16 font. Only ASCII 32-126 (printable).
-   Each character is 16 bytes, one byte per row, MSB is top.
-   Generated from a standard VGA BIOS font. */
+/*
+ * A minimal 8x16 font. Only ASCII 32-126 (printable).
+ * Each character is 16 bytes, one byte per row, MSB is top.
+ * Generated from a standard VGA BIOS font.
+ */
 static const unsigned char font[95][16] = {
     /* Space (32) */
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
@@ -235,22 +238,46 @@ static void draw_char(char c, uint64_t px, uint64_t py, uint32_t fg, uint32_t bg
     }
 }
 
-/* Scroll the screen up by one line */
+/* 
+ * Scroll the screen up by one character row.
+ * Uses rep movsq (64-bit copies) for the bulk operation 
+ * and 64-bit writes for clearing the last row.
+ */
 static void scroll(void) {
     uint64_t line_bytes = fb_pitch;
-    /* Move everything up one character row */
     unsigned char *video = (unsigned char *)fb_addr;
-    for (uint64_t row = FONT_HEIGHT; row < fb_height; row++) {
-        for (uint64_t byte = 0; byte < line_bytes; byte++) {
-            video[(row - FONT_HEIGHT) * line_bytes + byte] = video[row * line_bytes + byte];
-        }
+
+    /* Bytes to move: all rows except the first character row */
+    uint64_t total_bytes = (fb_height - FONT_HEIGHT) * line_bytes;
+
+    /* Source: start of second character row */
+    unsigned char *src = video + (FONT_HEIGHT * line_bytes);
+    /* Destination: start of framebuffer (first row) */
+    unsigned char *dst = video;
+
+    /* 
+     * Copy using rep movsq - moves 8 bytes at a time.
+     * After this, RDI and RSI will point past the copied region.
+     */
+    uint64_t qword_count = total_bytes / 8;
+    __asm__ volatile (
+        "rep movsq"
+        : "+D"(dst), "+S"(src), "+c"(qword_count)
+        :
+        : "memory"
+    );
+
+    /* Handle any remaining bytes (if total_bytes wasn't a multiple of 8) */
+    uint64_t remaining = total_bytes % 8;
+    for (uint64_t i = 0; i < remaining; i++) {
+        dst[i] = src[i];
     }
 
-    /* Clear the last character row */
-    for (uint64_t row = fb_height - FONT_HEIGHT; row < fb_height; row++) {
-        for (uint64_t byte = 0; byte < line_bytes; byte++) {
-            video[row * line_bytes + byte] = 0;
-        }
+    /* Clear the last character row (FONT_HEIGHT rows at the bottom) */
+    uint64_t *clear_ptr = (uint64_t *)(video + (fb_height - FONT_HEIGHT) * line_bytes);
+    uint64_t clear_qwords = (FONT_HEIGHT * line_bytes) / 8;
+    for (uint64_t i = 0; i < clear_qwords; i++) {
+        clear_ptr[i] = 0;
     }
 }
 
@@ -333,10 +360,11 @@ void console_write(const char *str) {
 }
 
 void console_clear(void) {
-    /* Fill framebuffer with black */
-    uint64_t total_pixels = fb_pixels_per_line * fb_height;
-    for (uint64_t i = 0; i < total_pixels; i++) {
-        fb_addr[i] = 0x000000;
+    /* Fill framebuffer with black using 64-bit writes */
+    uint64_t *ptr = (uint64_t *)fb_addr;
+    uint64_t total_qwords = (fb_pixels_per_line * fb_height) / 2;  /* 2 pixels per qword */
+    for (uint64_t i = 0; i < total_qwords; i++) {
+        ptr[i] = 0x0000000000000000ULL;
     }
     cursor_x = 0;
     cursor_y = 0;

@@ -28,23 +28,25 @@ void kernel_panic(const char *msg) {
     for (;;) __asm__ volatile ("hlt");
 }
 
-// Demo threads
+/* Demo threads */
 void thread_a(void) {
-    for (int i = 0;; i++) {
+    for (int i = 0; i < 10; i++) {
         spin_lock(&serial_lock);
         serial_printf("Thread A: %d\n", i);
         spin_unlock(&serial_lock);
-        for (volatile int j = 0; j < 1000000; j++); // busy-wait
+        for (volatile int j = 0; j < 1000000; j++);
     }
+    thread_exit();
 }
 
 void thread_b(void) {
-    for (int i = 0;; i++) {
+    for (int i = 0; i < 10; i++) {
         spin_lock(&serial_lock);
         serial_printf("Thread B: %d\n", i);
         spin_unlock(&serial_lock);
         for (volatile int j = 0; j < 1000000; j++);
     }
+    thread_exit();
 }
 
 void _start(void) {
@@ -100,7 +102,7 @@ void _start(void) {
 
     /* Unmask IRQ0 (timer) */
     __asm__ volatile (
-        "movb $0xFC, %%al\n"   // 0xFC = 11111100 - disable all except IRQ0
+        "movb $0xFC, %%al\n"
         "outb %%al, $0x21\n"
         "movb $0xFF, %%al\n"
         "outb %%al, $0xA1\n"
@@ -114,7 +116,7 @@ void _start(void) {
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();
 
-    /* Idle loop (we never return to here; the scheduler runs) */
+    /* Idle loop */
     for (;;) {
         __asm__ volatile ("hlt");
     }
