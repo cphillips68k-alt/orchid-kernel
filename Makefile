@@ -1,41 +1,65 @@
-CC = gcc
-LD = ld
+CROSS ?= x86_64-elf-
+CC = $(CROSS)gcc
+LD = $(CROSS)ld
+OBJCOPY = $(CROSS)objcopy
 
-GCC_INCLUDE = /usr/lib/gcc/x86_64-linux-gnu/14/include
+CFLAGS = -std=c11 -ffreestanding -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=kernel -O2 -pipe -Wall -Wextra -I.
 
-CFLAGS = -std=c11 -ffreestanding -mno-red-zone -mno-mmx -mno-sse \
-         -mno-sse2 -Wall -Wextra -O2 -g -pipe \
-         -mcmodel=kernel -mgeneral-regs-only -fno-PIE \
-         -fno-pic -fno-pie \
-         -isystem $(GCC_INCLUDE) \
-         -I.
+LDFLAGS = -T linker.ld -nostdlib -z max-page-size=0x1000
 
-LDFLAGS = -nostdlib -T linker.ld -static -no-pie
+# Source files
+C_SRC = src/main.c \
+        src/serial.c \
+        src/console.c \
+        src/limine.c \
+        src/gdt.c \
+        src/idt.c \
+        src/isr_handler.c \
+        src/scheduler.c \
+        src/pit.c
 
-KERNEL_BIN = kernel.elf
+ASM_SRC = src/isr.S \
+          src/switch.S
+
+# Object files
+C_OBJ = $(C_SRC:.c=.o)
+ASM_OBJ = $(ASM_SRC:.S=.o)
+OBJS = $(C_OBJ) $(ASM_OBJ)
+
+# Target
+KERNEL = kernel.elf
 
 .PHONY: all clean run
 
-all: $(KERNEL_BIN)
+all: $(KERNEL)
 
-SRC = src/main.c src/serial.c src/console.c src/limine.c
-OBJ = $(SRC:.c=.o)
+$(KERNEL): $(OBJS) linker.ld
+	@echo "  LD    $@"
+	@$(LD) $(LDFLAGS) -o $@ $(OBJS)
 
-%.o: %.c
+# C files
+src/%.o: src/%.c
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-$(KERNEL_BIN): $(OBJ) linker.ld
-	@echo "  LD    $@"
-	@$(LD) $(LDFLAGS) $(OBJ) -o $@
+# Assembly files
+src/%.o: src/%.S
+	@echo "  AS    $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+# Generate dependencies automatically
+DEPENDS = $(OBJS:.o=.d)
+-include $(DEPENDS)
+
+# Dependency generation rules
+src/%.d: src/%.c
+	@$(CC) $(CFLAGS) -MM -MT '$(<:.c=.o)' $< > $@
+
+src/%.d: src/%.S
+	@$(CC) $(CFLAGS) -MM -MT '$(<:.S=.o)' $< > $@
 
 clean:
-	rm -f $(OBJ) $(KERNEL_BIN)
+	rm -f $(OBJS) $(DEPENDS) $(KERNEL)
 
-run: $(KERNEL_BIN)
-	qemu-system-x86_64 \
-		-kernel $(KERNEL_BIN) \
-		-serial stdio \
-		-m 1G \
-		-no-reboot \
-		-no-shutdown
+run:
+	./run_qemu.sh
