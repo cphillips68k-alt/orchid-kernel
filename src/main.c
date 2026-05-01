@@ -13,9 +13,10 @@
 #include "tss.h"
 #include "ipc.h"
 #include "bus.h"
-#include "sync.h"
 #include "user.h"
+#include "sync.h"
 
+/* Limine request/response declarations */
 extern volatile struct limine_framebuffer_request framebuffer_request;
 extern volatile struct limine_memmap_request memmap_request;
 extern volatile struct limine_hhdm_request hhdm_request;
@@ -101,26 +102,55 @@ void echo_client(void) {
 }
 
 void _start(void) {
-    serial_init();
-    serial_write("\n========================================\n");
-    serial_write("Orchid Microkernel v0.2.0 (Skeleton + Threads)\n");
-    serial_write("========================================\n\n");
+    /* --- Fetch Limine responses --- */
+    struct limine_framebuffer_response *fb_resp =
+        (struct limine_framebuffer_response *)framebuffer_request.response;
+    struct limine_framebuffer *fb = NULL;
+    if (fb_resp != NULL && fb_resp->framebuffer_count > 0) {
+        fb = fb_resp->framebuffers[0];
+    }
+
+    struct limine_memmap_response *mm_resp =
+        (struct limine_memmap_response *)memmap_request.response;
 
     struct limine_hhdm_response *hhdm_resp =
         (struct limine_hhdm_response *)hhdm_request.response;
-    if (hhdm_resp) {
+    if (hhdm_resp != NULL) {
         hhdm_offset = hhdm_resp->offset;
-        serial_printf("[boot] HHDM offset: %x\n", hhdm_offset);
-    } else {
-        serial_write("[boot] No HHDM response!\n");
-        for (;;) __asm__ volatile ("hlt");
     }
 
+    /* --- Initialize core subsystems --- */
+    serial_init();
+    serial_write("\n========================================\n");
+    serial_write("Orchid Microkernel v0.2.0 (preemptive)\n");
+    serial_write("========================================\n\n");
+
+    if (fb != NULL) {
+        console_init(fb);
+        console_write("Orchid Microkernel v0.2.0\n========================\n");
+        console_printf("Framebuffer: %dx%d, BPP: %d\n", fb->width, fb->height, fb->bpp);
+    } else {
+        serial_write("[boot] No framebuffer available\n");
+    }
+
+    if (mm_resp != NULL) {
+        serial_printf("[boot] Memory map entries: %d\n", mm_resp->entry_count);
+        uint64_t total_usable = 0;
+        for (uint64_t i = 0; i < mm_resp->entry_count; i++) {
+            struct limine_memmap_entry *entry = mm_resp->entries[i];
+            if (entry->type == LIMINE_MEMMAP_USABLE)
+                total_usable += entry->length;
+        }
+        serial_printf("[boot] Total usable RAM: %d MB\n", total_usable / (1024 * 1024));
+    }
+
+    /* Initialize memory managers */
     pmm_init();
     vmm_init();
     __asm__ volatile ("mov %%cr3, %0" : "=r"(kernel_cr3));
-    serial_printf("[boot] Kernel CR3: %x\n", kernel_cr3);
+    serial_printf("[boot] HHDM offset: %x\n", hhdm_offset);
 
+    /* Setup hardware and scheduling */
     gdt_init();
     idt_init();
     pit_init();
@@ -144,15 +174,15 @@ void _start(void) {
     thread_create(echo_service, "echo_svc", krnl_cr3);
     thread_create(echo_client, "echo_cli", krnl_cr3);
 
-    serial_write("[boot] Preemptive scheduler started.\n");
-    enable_interrupts();
-
-    for (;;) __asm__ volatile ("hlt");
-
-    /* Create user thread */
+    /* Create a user‑mode thread */
     serial_write("[boot] Launching user thread...\n");
     user_thread_create();
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();
+
+    /* Idle loop – the scheduler will take over */
+    for (;;) {
+        __asm__ volatile ("hlt");
+    }
 }
