@@ -29,45 +29,52 @@ static inline void *phys_to_virt(uint64_t phys) {
 void vmm_init(void) {
     serial_write("[VMM] Initializing...\n");
     __asm__ volatile ("mov %%cr3, %0" : "=r"(pml4));
-    serial_printf("[VMM] PML4 at phys 0x%x\n", (uint64_t)pml4);
+    serial_printf("[VMM] PML4 at phys %x\n", (uint64_t)pml4);
+}
+
+/* Only called with vmm_lock held */
+static void ensure_page_table(uint64_t *entry_ptr) {
+    if (!(*entry_ptr & 1)) {
+        uint64_t pt_phys = pmm_alloc_page();
+        if (pt_phys == 0) {
+            serial_write("[VMM] Out of memory\n");
+            return;  /* leaves entry not present; caller must check */
+        }
+        uint64_t *pt_virt = phys_to_virt(pt_phys);
+        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
+        *entry_ptr = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
+    }
 }
 
 void vmm_map(uint64_t virt, uint64_t phys, uint64_t flags) {
+    if (phys == 0) {
+        serial_printf("[VMM] ERROR: vmm_map called with phys=0 for virt %x\n", virt);
+        return;
+    }
+
     spin_lock(&vmm_lock);
     uint64_t *pml4_virt = phys_to_virt((uint64_t)pml4);
 
     int pml4_i = PML4_INDEX(virt);
-    int pdpt_i = PDPT_INDEX(virt);
-    int pd_i   = PD_INDEX(virt);
-    int pt_i   = PT_INDEX(virt);
-
+    ensure_page_table(&pml4_virt[pml4_i]);
     if (!(pml4_virt[pml4_i] & 1)) {
-        uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
-        uint64_t *pt_virt = phys_to_virt(pt_phys);
-        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
-        pml4_virt[pml4_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
+        spin_unlock(&vmm_lock);
+        return;
     }
 
     uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
-    if (!(pdpt[pdpt_i] & 1)) {
-        uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
-        uint64_t *pt_virt = phys_to_virt(pt_phys);
-        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
-        pdpt[pdpt_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
-    }
+    int pdpt_i = PDPT_INDEX(virt);
+    ensure_page_table(&pdpt[pdpt_i]);
+    if (!(pdpt[pdpt_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pd = phys_to_virt(entry_get_addr(pdpt[pdpt_i]));
-    if (!(pd[pd_i] & 1)) {
-        uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
-        uint64_t *pt_virt = phys_to_virt(pt_phys);
-        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
-        pd[pd_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
-    }
+    int pd_i = PD_INDEX(virt);
+    ensure_page_table(&pd[pd_i]);
+    if (!(pd[pd_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pt = phys_to_virt(entry_get_addr(pd[pd_i]));
+    int pt_i = PT_INDEX(virt);
+
     pt[pt_i] = make_entry(phys, flags | VMM_PRESENT);
 
     __asm__ volatile ("invlpg (%0)" : : "r"(virt) : "memory");
@@ -121,37 +128,24 @@ out:
 }
 
 void vmm_map_user(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags, int is_user) {
+    if (phys == 0) return;
+
     spin_lock(&vmm_lock);
     uint64_t *pml4_virt = phys_to_virt(pml4_phys);
 
     int pml4_i = PML4_INDEX(virt);
-    if (!(pml4_virt[pml4_i] & 1)) {
-        uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
-        uint64_t *pt_virt = phys_to_virt(pt_phys);
-        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
-        pml4_virt[pml4_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
-    }
+    ensure_page_table(&pml4_virt[pml4_i]);
+    if (!(pml4_virt[pml4_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
     int pdpt_i = PDPT_INDEX(virt);
-    if (!(pdpt[pdpt_i] & 1)) {
-        uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
-        uint64_t *pt_virt = phys_to_virt(pt_phys);
-        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
-        pdpt[pdpt_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
-    }
+    ensure_page_table(&pdpt[pdpt_i]);
+    if (!(pdpt[pdpt_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pd = phys_to_virt(entry_get_addr(pdpt[pdpt_i]));
     int pd_i = PD_INDEX(virt);
-    if (!(pd[pd_i] & 1)) {
-        uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
-        uint64_t *pt_virt = phys_to_virt(pt_phys);
-        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
-        pd[pd_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
-    }
+    ensure_page_table(&pd[pd_i]);
+    if (!(pd[pd_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pt = phys_to_virt(entry_get_addr(pd[pd_i]));
     int pt_i = PT_INDEX(virt);
@@ -161,7 +155,7 @@ void vmm_map_user(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t fla
     spin_unlock(&vmm_lock);
 }
 
-/* --- Kernel heap --- */
+/* --- Kernel heap (unchanged except using the new ensure_page_table) --- */
 #define HEAP_START_VIRT 0xFFFFF00000000000
 #define HEAP_INITIAL_PAGES 16
 
@@ -177,6 +171,7 @@ static int heap_initialized = 0;
 static uint64_t heap_end_virt = HEAP_START_VIRT;
 
 static int heap_expand_locked(size_t min_size) {
+    (void)min_size;
     uint64_t phys = pmm_alloc_page();
     if (!phys) return 0;
     vmm_map(heap_end_virt, phys, VMM_PRESENT | VMM_WRITABLE);

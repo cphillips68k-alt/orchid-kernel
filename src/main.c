@@ -185,8 +185,8 @@ void _start(void) {
     thread_create(echo_client, "echo_cli", kernel_cr3);
 
     /* Create a user‑mode thread */
-    serial_write("[boot] Launching user thread...\n");
-    user_thread_create();
+    /* serial_write("[boot] Launching user thread...\n");
+    user_thread_create(); */
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();

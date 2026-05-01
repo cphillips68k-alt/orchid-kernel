@@ -3,7 +3,7 @@
 #include "scheduler.h"
 
 static void page_fault_handler(uint64_t error_code, uint64_t addr) {
-    serial_printf("[PF] Page fault at 0x%x, error 0x%x, killing thread\n", addr, error_code);
+    serial_printf("[PF] Page fault at %x, error %x, killing thread\n", addr, error_code);
     thread_exit();
 }
 
