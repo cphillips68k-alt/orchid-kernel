@@ -9,7 +9,7 @@ extern volatile struct limine_memmap_request memmap_request;
 /* HHDM offset (set by main.c before pmm_init) */
 extern uint64_t hhdm_offset;
 
-#define MAX_FREE_LIST 1024  /* Increase if you have >4GB RAM */
+#define MAX_FREE_LIST 300000   /* enough for ~1.2 GB of RAM */
 
 static uint64_t free_stack[MAX_FREE_LIST];
 static int free_top = 0;
