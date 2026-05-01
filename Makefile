@@ -3,9 +3,10 @@ CC = $(CROSS)gcc
 LD = $(CROSS)ld
 OBJCOPY = $(CROSS)objcopy
 
-CFLAGS = -std=c11 -ffreestanding -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=kernel -O2 -pipe -Wall -Wextra -I.
+CFLAGS = -std=c11 -ffreestanding -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
+         -mcmodel=kernel -O2 -pipe -Wall -Wextra -I. -fno-pic -fno-pie
 
-LDFLAGS = -T linker.ld -nostdlib -z max-page-size=0x1000
+LDFLAGS = -T linker.ld -nostdlib -z max-page-size=0x1000 -no-pie
 
 # Source files
 C_SRC = src/main.c \
@@ -47,11 +48,10 @@ src/%.o: src/%.S
 	@echo "  AS    $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-# Generate dependencies automatically
+# Dependency files
 DEPENDS = $(OBJS:.o=.d)
 -include $(DEPENDS)
 
-# Dependency generation rules
 src/%.d: src/%.c
 	@$(CC) $(CFLAGS) -MM -MT '$(<:.c=.o)' $< > $@
 
