@@ -2,8 +2,6 @@
 .global __switch_to
 .type __switch_to, @function
 
-// void __switch_to(thread_t *old, thread_t *new)
-// old->rsp = rsp, then rsp = new->rsp, then ret
 __switch_to:
     pushq %rbp
     pushq %rbx
@@ -12,8 +10,8 @@ __switch_to:
     pushq %r14
     pushq %r15
 
-    movq %rsp, (%rdi)      // old->rsp = rsp
-    movq (%rsi), %rsp      // rsp = new->rsp
+    movq %rsp, (%rdi)
+    movq (%rsi), %rsp
 
     popq %r15
     popq %r14
