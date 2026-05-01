@@ -8,6 +8,7 @@
 #include "idt.h"
 #include "pit.h"
 #include "scheduler.h"
+#include "tss.h"
 
 extern volatile struct limine_memmap_request memmap_request;
 extern volatile struct limine_hhdm_request hhdm_request;
@@ -26,7 +27,7 @@ void kernel_panic(const char *msg) {
 void _start(void) {
     serial_init();
     serial_write("\n========================================\n");
-    serial_write("Orchid Microkernel v0.2.0 (Skeleton + IRQs)\n");
+    serial_write("Orchid Microkernel v0.2.0 (Skeleton + TSS)\n");
     serial_write("========================================\n\n");
 
     struct limine_hhdm_response *hhdm_resp =
@@ -55,6 +56,9 @@ void _start(void) {
 
     scheduler_init();
     serial_write("[boot] Scheduler OK\n");
+
+    tss_init();
+    serial_write("[boot] TSS OK\n");
 
     /* Unmask IRQ0 (timer) only */
     __asm__ volatile (
