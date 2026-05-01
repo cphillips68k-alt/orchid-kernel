@@ -4,19 +4,19 @@
 .macro ISR_NOERRCODE n
 .global isr\n
 isr\n:
-    pushq $0        // dummy error code
-    pushq $\n       // interrupt number
+    pushq $0
+    pushq $\n
     jmp isr_common
 .endm
 
 .macro ISR_ERRCODE n
 .global isr\n
 isr\n:
-    pushq $\n       // interrupt number
+    pushq $\n
     jmp isr_common
 .endm
 
-// Exceptions (0-31)
+/* Exceptions (0-31) */
 ISR_NOERRCODE 0
 ISR_NOERRCODE 1
 ISR_NOERRCODE 2
@@ -50,7 +50,7 @@ ISR_NOERRCODE 29
 ISR_ERRCODE   30
 ISR_NOERRCODE 31
 
-// IRQs (32-47)
+/* IRQs (32-47) */
 ISR_NOERRCODE 32
 ISR_NOERRCODE 33
 ISR_NOERRCODE 34
@@ -68,7 +68,7 @@ ISR_NOERRCODE 45
 ISR_NOERRCODE 46
 ISR_NOERRCODE 47
 
-// Array of stub addresses
+/* Array of stub addresses */
 .section .data
 .align 8
 .global isr_stub_table
@@ -80,13 +80,13 @@ isr_stub_table:
     .quad isr32, isr33, isr34, isr35, isr36, isr37, isr38, isr39
     .quad isr40, isr41, isr42, isr43, isr44, isr45, isr46, isr47
 
-// Common handler - C callable
+/* Common handler */
 .extern isr_handler
 .type isr_handler, @function
 
 .section .text
 isr_common:
-    // Save all registers
+    /* Save all registers */
     pushq %rdi
     pushq %rsi
     pushq %rbp
@@ -103,11 +103,11 @@ isr_common:
     pushq %r14
     pushq %r15
 
-    // Call C handler (stack already contains: r15..rax, int_no, err_code, rip, cs, rflags, [rsp, ss])
+    /* Call C handler with pointer to saved state */
     movq %rsp, %rdi
     call isr_handler
 
-    // Pop registers
+    /* Restore registers */
     popq %r15
     popq %r14
     popq %r13
@@ -124,7 +124,7 @@ isr_common:
     popq %rsi
     popq %rdi
 
-    // Clean error code and int number
+    /* Remove error code and interrupt number */
     addq $16, %rsp
 
     iretq
