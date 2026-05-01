@@ -176,6 +176,41 @@ typedef struct heap_block {
 static heap_block_t *heap_head = NULL;
 static spinlock_t heap_lock = 0;
 static int heap_initialized = 0;
+static uint64_t heap_end_virt = HEAP_START_VIRT;   /* current end of mapped heap */
+
+/* Must be called with heap_lock held */
+static int heap_expand_locked(size_t min_size) {
+    /* Allocate one page */
+    uint64_t phys = pmm_alloc_page();
+    if (!phys) return 0;
+
+    /* Map it at the end of the heap area */
+    vmm_map(heap_end_virt, phys, VMM_PRESENT | VMM_WRITABLE);
+
+    /* Create a free block spanning the new page */
+    heap_block_t *new_block = (heap_block_t *)heap_end_virt;
+    new_block->size = PAGE_SIZE - sizeof(heap_block_t);
+    new_block->free = 1;
+    new_block->next = NULL;
+
+    /* Append to the end of the heap list */
+    if (heap_head == NULL) {
+        heap_head = new_block;
+    } else {
+        heap_block_t *last = heap_head;
+        while (last->next) last = last->next;
+        /* Coalesce with previous block if it is free (and contiguous) */
+        if (last->free && (uint64_t)((char*)last + sizeof(heap_block_t) + last->size) == heap_end_virt) {
+            last->size += sizeof(heap_block_t) + new_block->size;
+            /* last->next stays NULL */
+        } else {
+            last->next = new_block;
+        }
+    }
+
+    heap_end_virt += PAGE_SIZE;
+    return 1;
+}
 
 static void heap_init(void) {
     /* Allocate initial memory for the heap */
@@ -183,10 +218,11 @@ static void heap_init(void) {
         uint64_t phys = pmm_alloc_page();
         if (!phys) break;
         vmm_map(HEAP_START_VIRT + i * PAGE_SIZE, phys, VMM_PRESENT | VMM_WRITABLE);
+        heap_end_virt = HEAP_START_VIRT + (i + 1) * PAGE_SIZE;
     }
 
     heap_block_t *initial = (heap_block_t *)HEAP_START_VIRT;
-    initial->size = HEAP_INITIAL_PAGES * PAGE_SIZE - sizeof(heap_block_t);
+    initial->size = heap_end_virt - HEAP_START_VIRT - sizeof(heap_block_t);
     initial->free = 1;
     initial->next = NULL;
     heap_head = initial;
@@ -202,39 +238,33 @@ void *kmalloc(size_t size) {
     /* Align size to 8 bytes */
     size = (size + 7) & ~7;
 
-    heap_block_t *curr = heap_head;
-    while (curr) {
-        if (curr->free && curr->size >= size) {
-            /* Split block if remainder is enough for a new header */
-            if (curr->size >= size + sizeof(heap_block_t) + 8) {
-                heap_block_t *new_block = (heap_block_t *)((char *)(curr + 1) + size);
-                new_block->size = curr->size - size - sizeof(heap_block_t);
-                new_block->free = 1;
-                new_block->next = curr->next;
-                curr->size = size;
-                curr->next = new_block;
+    while (1) {
+        heap_block_t *curr = heap_head;
+        while (curr) {
+            if (curr->free && curr->size >= size) {
+                /* Split block if remainder is enough for a new header */
+                if (curr->size >= size + sizeof(heap_block_t) + 8) {
+                    heap_block_t *new_block = (heap_block_t *)((char *)(curr + 1) + size);
+                    new_block->size = curr->size - size - sizeof(heap_block_t);
+                    new_block->free = 1;
+                    new_block->next = curr->next;
+                    curr->size = size;
+                    curr->next = new_block;
+                }
+                curr->free = 0;
+                spin_unlock(&heap_lock);
+                return (void *)(curr + 1);
             }
-            curr->free = 0;
-            spin_unlock(&heap_lock);
-            return (void *)(curr + 1);
+            curr = curr->next;
         }
-        curr = curr->next;
-    }
 
-    /* No block big enough – grow heap */
-    uint64_t phys = pmm_alloc_page();
-    if (!phys) {
-        spin_unlock(&heap_lock);
-        return NULL;
+        /* No block found – try to expand the heap */
+        if (!heap_expand_locked(size)) {
+            spin_unlock(&heap_lock);
+            return NULL;   /* out of physical memory */
+        }
+        /* Loop again; the new free block will be found */
     }
-    uint64_t virt = HEAP_START_VIRT +
-                    ((HEAP_INITIAL_PAGES + 1) * PAGE_SIZE) /* need a better way to track; for now just append */
-                    /* Simplistic: just map at end of existing heap, but we lost track.
-                       We'll do a proper allocator in future. For now, just return NULL. */
-                    ;
-    (void)virt;
-    spin_unlock(&heap_lock);
-    return NULL;  /* Too simple; we'll improve later */
 }
 
 void kfree(void *ptr) {
@@ -248,5 +278,17 @@ void kfree(void *ptr) {
         block->size += sizeof(heap_block_t) + block->next->size;
         block->next = block->next->next;
     }
+
+    /* Attempt to merge with previous block (simple linear search) */
+    heap_block_t *prev = NULL;
+    for (heap_block_t *cur = heap_head; cur; cur = cur->next) {
+        if (cur == block) break;
+        prev = cur;
+    }
+    if (prev && prev->free && (uint64_t)((char*)prev + sizeof(heap_block_t) + prev->size) == (uint64_t)block) {
+        prev->size += sizeof(heap_block_t) + block->size;
+        prev->next = block->next;
+    }
+
     spin_unlock(&heap_lock);
 }

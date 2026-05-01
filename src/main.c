@@ -10,6 +10,9 @@
 #include "pit.h"
 #include "pmm.h"
 #include "vmm.h"
+#include "tss.h"
+#include "ipc.h"
+#include "bus.h"
 #include "sync.h"
 
 /* Limine request/response declarations */
@@ -50,6 +53,55 @@ void thread_b(void) {
         spin_unlock(&serial_lock);
         for (volatile int j = 0; j < 1000000; j++);
     }
+    thread_exit();
+}
+
+/* IPC demo: echo service */
+void echo_service(void) {
+    int port = bus_register("echo");
+    if (port < 0) {
+        serial_write("Failed to register echo service\n");
+        thread_exit();
+        return;
+    }
+    spin_lock(&serial_lock);
+    serial_printf("Echo service started on port %d\n", port);
+    spin_unlock(&serial_lock);
+
+    for (;;) {
+        struct ipc_message msg;
+        ipc_recv(port, &msg);
+        ipc_send(port, &msg);
+    }
+}
+
+/* IPC demo: client that sends a message and receives the echo */
+void echo_client(void) {
+    /* give the service a moment to register */
+    for (volatile int i = 0; i < 1000000; i++);
+
+    int port = bus_lookup("echo");
+    if (port < 0) {
+        serial_write("Echo service not found!\n");
+        thread_exit();
+        return;
+    }
+
+    struct ipc_message msg;
+    msg.length = 13;
+    for (int i = 0; i < 13; i++) msg.data[i] = "Hello, world!"[i];
+
+    spin_lock(&serial_lock);
+    serial_printf("Client sending to port %d: %s\n", port, msg.data);
+    spin_unlock(&serial_lock);
+
+    ipc_send(port, &msg);
+    ipc_recv(port, &msg);
+
+    spin_lock(&serial_lock);
+    serial_printf("Client received reply: %s\n", msg.data);
+    spin_unlock(&serial_lock);
+
     thread_exit();
 }
 
@@ -114,6 +166,10 @@ void _start(void) {
     pit_init();
     scheduler_init();
 
+    /* Set up TSS (required for future ring3) */
+    tss_init();
+    serial_write("[boot] TSS initialised.\n");
+
     /* Unmask IRQ0 (timer) only */
     __asm__ volatile (
         "movb $0xFC, %%al\n"   /* 0xFC = 11111100b – enable only IRQ0 */
@@ -123,9 +179,11 @@ void _start(void) {
         ::: "al"
     );
 
-    /* Create two demo threads */
+    /* Create demo threads */
     thread_create(thread_a, "thread_a");
     thread_create(thread_b, "thread_b");
+    thread_create(echo_service, "echo_svc");
+    thread_create(echo_client, "echo_cli");
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();
