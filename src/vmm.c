@@ -14,8 +14,9 @@ extern uint64_t hhdm_offset;
 static uint64_t *pml4;
 static spinlock_t vmm_lock = 0;
 
+/* ----- FIX: entry_get_addr now returns the full physical address, not the PFN ----- */
 static inline uint64_t entry_get_addr(uint64_t entry) {
-    return (entry & 0x000FFFFFFFFFF000) >> 12;
+    return entry & 0x000FFFFFFFFFF000;      /* no shift! */
 }
 
 static inline uint64_t make_entry(uint64_t phys, uint64_t flags) {
@@ -38,7 +39,7 @@ static void ensure_page_table(uint64_t *entry_ptr) {
         uint64_t pt_phys = pmm_alloc_page();
         if (pt_phys == 0) {
             serial_write("[VMM] Out of memory\n");
-            return;  /* leaves entry not present; caller must check */
+            return;
         }
         uint64_t *pt_virt = phys_to_virt(pt_phys);
         for (int i = 0; i < 512; i++) pt_virt[i] = 0;
@@ -57,10 +58,7 @@ void vmm_map(uint64_t virt, uint64_t phys, uint64_t flags) {
 
     int pml4_i = PML4_INDEX(virt);
     ensure_page_table(&pml4_virt[pml4_i]);
-    if (!(pml4_virt[pml4_i] & 1)) {
-        spin_unlock(&vmm_lock);
-        return;
-    }
+    if (!(pml4_virt[pml4_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
     int pdpt_i = PDPT_INDEX(virt);
@@ -121,7 +119,7 @@ uint64_t vmm_virt_to_phys(uint64_t virt) {
     int pt_i = PT_INDEX(virt);
     if (!(pt[pt_i] & 1)) goto out;
 
-    phys = (entry_get_addr(pt[pt_i]) << 12) | (virt & 0xFFF);
+    phys = (entry_get_addr(pt[pt_i])) | (virt & 0xFFF);   /* entry_get_addr already gives full phys */
 out:
     spin_unlock(&vmm_lock);
     return phys;
@@ -155,7 +153,7 @@ void vmm_map_user(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t fla
     spin_unlock(&vmm_lock);
 }
 
-/* --- Kernel heap (unchanged except using the new ensure_page_table) --- */
+/* --- Kernel heap (unchanged) --- */
 #define HEAP_START_VIRT 0xFFFFF00000000000
 #define HEAP_INITIAL_PAGES 16
 
