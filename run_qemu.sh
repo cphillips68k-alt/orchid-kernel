@@ -4,46 +4,30 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$SCRIPT_DIR"
 
-# Version of Limine to download (stable release)
-LIMINE_VERSION="8.4.0"
+# Version of Limine to vendor (binary branch)
+LIMINE_BRANCH="v8.x-binary"
 LIMINE_DIR="$SCRIPT_DIR/limine"
-LIMINE_BIN="$LIMINE_DIR/limine"
-LIMINE_FILES=(
-    "limine-bios.sys"
-    "limine-bios-cd.bin"
-    "limine-uefi-cd.bin"
-)
 
-# Download and vendor Limine if necessary
-if ! [ -f "$LIMINE_BIN" ] || ! [ -f "$LIMINE_DIR/limine-bios.sys" ]; then
-    echo "=== Vendoring Limine $LIMINE_VERSION ==="
+# Download and vendor the Limine binary release if necessary
+if ! [ -f "$LIMINE_DIR/limine" ] || ! [ -f "$LIMINE_DIR/limine-bios.sys" ]; then
+    echo "=== Vendoring Limine from branch '$LIMINE_BRANCH' ==="
     mkdir -p "$LIMINE_DIR"
-    # Fetch binary release from GitHub
-    LIMINE_URL="https://github.com/limine-bootloader/limine/releases/download/v${LIMINE_VERSION}/limine-${LIMINE_VERSION}-binary.tar.xz"
-    ARCHIVE="$LIMINE_DIR/limine-binary.tar.xz"
+    
+    TMPDIR=$(mktemp -d)
+    git clone https://github.com/limine-bootloader/limine.git \
+        --branch="$LIMINE_BRANCH" --depth=1 "$TMPDIR"
 
-    if command -v wget &>/dev/null; then
-        wget -O "$ARCHIVE" "$LIMINE_URL"
-    elif command -v curl &>/dev/null; then
-        curl -L -o "$ARCHIVE" "$LIMINE_URL"
-    else
-        echo "Error: wget or curl is required to download Limine."
-        exit 1
-    fi
-
-    # Extract the tarball -- it contains a top-level directory like 'limine-8.4.0-binary/'
-    TMPDIR="$LIMINE_DIR/tmp_limine"
-    mkdir -p "$TMPDIR"
-    tar xf "$ARCHIVE" -C "$TMPDIR" --strip-components=1
-
-    # Copy the needed files into limine/
-    for f in "${LIMINE_FILES[@]}" "limine"; do
-        if [ -f "$TMPDIR/$f" ]; then
-            cp "$TMPDIR/$f" "$LIMINE_DIR/"
-        fi
+    # Copy the files we need
+    for f in limine-bios.sys limine-bios-cd.bin limine-uefi-cd.bin; do
+        cp "$TMPDIR/$f" "$LIMINE_DIR/"
     done
-    chmod +x "$LIMINE_BIN"
-    rm -rf "$TMPDIR" "$ARCHIVE"
+
+    # Build the limine installer tool
+    make -C "$TMPDIR" limine
+    cp "$TMPDIR/limine" "$LIMINE_DIR/"
+    chmod +x "$LIMINE_DIR/limine"
+
+    rm -rf "$TMPDIR"
     echo "=== Limine vendored successfully ==="
 fi
 
@@ -85,7 +69,7 @@ xorriso -as mkisofs \
     iso_root -o orchid.iso
 
 # Install Limine onto the ISO
-"$LIMINE_BIN" bios-install orchid.iso
+"$LIMINE_DIR/limine" bios-install orchid.iso
 
 echo "=== Booting Orchid ==="
 qemu-system-x86_64 \

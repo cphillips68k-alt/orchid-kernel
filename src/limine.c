@@ -11,8 +11,11 @@ volatile struct limine_rsdp_request __attribute__((section(".limine_requests")))
 volatile struct limine_kernel_file_request __attribute__((section(".limine_requests"))) 
     kernel_file_request = { LIMINE_KERNEL_FILE_REQUEST, 0, 0 };
 
-void *limine_requests_start_marker = 0;
-void *limine_requests_end_marker = 0;
+__attribute__((section(".limine_requests_start_marker")))
+volatile void *volatile limine_requests_start_marker = NULL;
+
+__attribute__((section(".limine_requests_end_marker")))
+volatile void *volatile limine_requests_end_marker = NULL;
 
 __attribute__((section(".limine_kernel_info")))
 struct limine_kernel_info kernel_info = {
