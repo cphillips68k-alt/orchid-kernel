@@ -6,6 +6,7 @@
 #include "vmm.h"
 #include "gdt.h"
 #include "idt.h"
+#include "pit.h"
 
 extern volatile struct limine_memmap_request memmap_request;
 extern volatile struct limine_hhdm_request hhdm_request;
@@ -24,7 +25,7 @@ void kernel_panic(const char *msg) {
 void _start(void) {
     serial_init();
     serial_write("\n========================================\n");
-    serial_write("Orchid Microkernel v0.2.0 (Skeleton + IDT)\n");
+    serial_write("Orchid Microkernel v0.2.0 (Skeleton + PIT)\n");
     serial_write("========================================\n\n");
 
     struct limine_hhdm_response *hhdm_resp =
@@ -47,6 +48,9 @@ void _start(void) {
 
     idt_init();
     serial_write("[boot] IDT OK\n");
+
+    pit_init();
+    serial_write("[boot] PIT OK\n");
 
     serial_write("[boot] Skeleton OK – halting.\n");
     for (;;) __asm__ volatile ("hlt");
