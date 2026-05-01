@@ -76,8 +76,7 @@ void gdt_init() {
         .base_high = 0
     };
 
-    // TSS entry (we'll define it after knowing the TSS address)
-    // For now, set to zero, tss_init() will configure and flush.
+    // Zero out TSS entry initially
     tss_entry = (struct tss_entry){0};
 
     gdtp.limit = sizeof(gdt_entries) + sizeof(tss_entry) - 1;
@@ -101,14 +100,13 @@ void gdt_init() {
     );
 }
 
-// Function to set the TSS and load it
 void gdt_set_tss(uint64_t base) {
-    tss_entry.length = sizeof(struct tss);
-    tss_entry.base_low = base & 0xFFFF;
-    tss_entry.base_mid = (base >> 16) & 0xFF;
-    tss_entry.flags1 = 0x89;    // present, 64-bit TSS
-    tss_entry.flags2 = 0;
+    tss_entry.length    = 104;  // fixed size of 64‑bit TSS
+    tss_entry.base_low  = base & 0xFFFF;
+    tss_entry.base_mid  = (base >> 16) & 0xFF;
+    tss_entry.flags1    = 0x89;    // present, 64‑bit TSS
+    tss_entry.flags2    = 0;
     tss_entry.base_high = (base >> 24) & 0xFF;
     tss_entry.base_upper = base >> 32;
-    tss_entry.reserved = 0;
+    tss_entry.reserved  = 0;
 }

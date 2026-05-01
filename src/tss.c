@@ -1,4 +1,5 @@
 #include "tss.h"
+#include "gdt.h"
 #include <stddef.h>
 
 struct tss {
@@ -28,13 +29,10 @@ void tss_init(void) {
     for (int i = 0; i < sizeof(tss_data); i++)
         ((volatile uint8_t*)&tss_data)[i] = 0;
 
-    /* 
-     * Later, when we switch to user mode, tss_set_rsp0 will be called
-     * with the kernel stack for the current task.
-     */
-    // Set IST entries if we want interrupt stack switching (optional)
+    /* Set up the TSS entry in the GDT */
+    gdt_set_tss((uint64_t)&tss_data);
 
-    /* The TSS selector is 0x18 (5th GDT entry, after NULL, code, data, NULL * 2) */
+    /* Load the TSS selector (0x18 = 5th entry: after NULL, code, data, user code, user data) */
     tss_flush(0x18);
 }
 
