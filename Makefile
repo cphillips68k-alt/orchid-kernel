@@ -1,4 +1,4 @@
-CROSS ?= x86_64-elf-
+CROSS ?=
 CC = $(CROSS)gcc
 LD = $(CROSS)ld
 OBJCOPY = $(CROSS)objcopy
