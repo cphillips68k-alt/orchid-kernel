@@ -26,7 +26,7 @@ void kernel_panic(const char *msg) {
 void _start(void) {
     serial_init();
     serial_write("\n========================================\n");
-    serial_write("Orchid Microkernel v0.2.0 (Skeleton + Sched)\n");
+    serial_write("Orchid Microkernel v0.2.0 (Skeleton + IRQs)\n");
     serial_write("========================================\n\n");
 
     struct limine_hhdm_response *hhdm_resp =
@@ -56,6 +56,17 @@ void _start(void) {
     scheduler_init();
     serial_write("[boot] Scheduler OK\n");
 
-    serial_write("[boot] Skeleton OK – halting.\n");
+    /* Unmask IRQ0 (timer) only */
+    __asm__ volatile (
+        "movb $0xFC, %%al\n"
+        "outb %%al, $0x21\n"
+        "movb $0xFF, %%al\n"
+        "outb %%al, $0xA1\n"
+        ::: "al"
+    );
+    enable_interrupts();
+    serial_write("[boot] Interrupts enabled\n");
+
+    serial_write("[boot] Interrupts enabled.\n");
     for (;;) __asm__ volatile ("hlt");
 }
