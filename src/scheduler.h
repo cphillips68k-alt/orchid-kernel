@@ -12,14 +12,16 @@ typedef struct thread {
 
 #define THREAD_STATE_RUNNING 1
 #define THREAD_STATE_READY   2
+#define THREAD_STATE_BLOCKED 3
 
 extern thread_t *current_thread;
 
 void scheduler_init(void);
 thread_t *thread_create(void (*entry)(void), const char *name);
 void schedule(void);
-void switch_to(thread_t *next);
 void enable_interrupts(void);
 void thread_exit(void);
+void thread_block(void);
+void thread_unblock(thread_t *t);
 
 #endif

@@ -90,6 +90,30 @@ void thread_exit(void) {
     __builtin_unreachable();
 }
 
+void thread_block(void) {
+    spin_lock(&sched_lock);
+    current_thread->state = THREAD_STATE_BLOCKED;
+    spin_unlock(&sched_lock);
+    schedule();  /* will not re-add current because state != RUNNING */
+}
+
+void thread_unblock(thread_t *t) {
+    spin_lock(&sched_lock);
+    if (t->state == THREAD_STATE_BLOCKED) {
+        t->state = THREAD_STATE_READY;
+        t->next = NULL;
+        /* Add to tail of ready queue */
+        if (ready_queue) {
+            thread_t *tail = ready_queue;
+            while (tail->next) tail = tail->next;
+            tail->next = t;
+        } else {
+            ready_queue = t;
+        }
+    }
+    spin_unlock(&sched_lock);
+}
+
 void schedule(void) {
     spin_lock(&sched_lock);
 
