@@ -8,53 +8,41 @@ echo "=== Building kernel ==="
 make clean
 make
 
-echo "=== Setting up Limine ==="
+echo "=== Preparing ISO ==="
+rm -rf iso_root orchid.iso
+mkdir -p iso_root/limine
 
-# Clone Limine if we don't have it
-if [ ! -d "limine" ]; then
-    git clone https://github.com/limine-bootloader/limine.git --branch=v8.x-binary --depth=1
-fi
+# Copy kernel to ISO root
+cp kernel.elf iso_root/
 
-# Build Limine
-cd limine
-make
-cd ..
+# Copy vendored Limine boot files
+cp limine/limine-bios.sys iso_root/limine/
+cp limine/limine-bios-cd.bin iso_root/limine/
+cp limine/limine-uefi-cd.bin iso_root/limine/
 
-# Create ISO directory
-rm -rf iso_root
-mkdir -p iso_root/boot
-
-# Copy kernel to /boot inside ISO
-cp kernel.elf iso_root/boot/
-
-cat > iso_root/boot/limine.conf << 'EOF'
-TIMEOUT: 0
-verbose: yes
-
-/Orchid Microkernel
-    protocol: limine
-    kernel_path: boot:///boot/kernel.elf
+# Create Limine config
+cat > iso_root/limine.cfg << 'EOF'
+TIMEOUT=0
+:Orchid Microkernel
+PROTOCOL=limine
+KERNEL_PATH=boot:///kernel.elf
 EOF
 
-# Copy Limine boot files
-cp limine/limine-bios.sys iso_root/boot/
-cp limine/limine-bios-cd.bin iso_root/boot/
-cp limine/limine-uefi-cd.bin iso_root/boot/
-
-# Create ISO
+# Create bootable ISO
 echo "=== Creating bootable ISO ==="
-xorriso -as mkisofs -b boot/limine-bios-cd.bin \
-    -no-emul-boot -boot-load-size 4 -boot-info-table \
-    --efi-boot boot/limine-uefi-cd.bin \
-    -efi-boot-part --efi-boot-image --protective-msdos-label \
+xorriso -as mkisofs \
+    -b limine/limine-bios-cd.bin \
+    -no-emul-boot \
+    -boot-load-size 4 \
+    -boot-info-table \
+    --efi-boot limine/limine-uefi-cd.bin \
+    -efi-boot-part \
+    --efi-boot-image \
+    --protective-msdos-label \
     iso_root -o orchid.iso
 
-# Deploy Limine onto the ISO
+# Install Limine
 ./limine/limine bios-install orchid.iso
-
-# Confirm kernel location inside ISO
-echo "=== ISO contents ==="
-xorriso -indev orchid.iso -ls /boot/ 2>/dev/null
 
 echo "=== Booting Orchid ==="
 qemu-system-x86_64 \
