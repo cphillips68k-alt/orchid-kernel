@@ -2,7 +2,7 @@
 #include "serial.h"
 #include "scheduler.h"
 
-uint64_t syscall_retval;   /* defined in main.c */
+extern uint64_t syscall_retval;   /* defined in main.c */
 
 static uint64_t do_write(uint64_t fd, const char *buf, uint64_t count) {
     if (fd == 1 || fd == 2) {
