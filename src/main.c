@@ -14,6 +14,7 @@
 #include "ipc.h"
 #include "bus.h"
 #include "sync.h"
+#include "user.h"
 
 extern volatile struct limine_framebuffer_request framebuffer_request;
 extern volatile struct limine_memmap_request memmap_request;
@@ -147,4 +148,11 @@ void _start(void) {
     enable_interrupts();
 
     for (;;) __asm__ volatile ("hlt");
+
+    /* Create user thread */
+    serial_write("[boot] Launching user thread...\n");
+    user_thread_create();
+
+    serial_write("[boot] Preemptive scheduler started.\n");
+    enable_interrupts();
 }
