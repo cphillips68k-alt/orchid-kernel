@@ -17,7 +17,9 @@ C_SRC = src/main.c \
         src/idt.c \
         src/isr_handler.c \
         src/scheduler.c \
-        src/pit.c
+        src/pit.c \
+        src/pmm.c \
+        src/vmm.c
 
 ASM_SRC = src/isr.S \
           src/switch.S

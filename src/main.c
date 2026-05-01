@@ -8,6 +8,9 @@
 #include "isr_handler.h"
 #include "scheduler.h"
 #include "pit.h"
+#include "pmm.h"
+#include "vmm.h"
+#include "sync.h"
 
 /* Limine request/response declarations */
 extern volatile struct limine_framebuffer_request framebuffer_request;
@@ -16,10 +19,11 @@ extern volatile struct limine_hhdm_request hhdm_request;
 extern volatile struct limine_rsdp_request rsdp_request;
 extern volatile struct limine_kernel_file_request kernel_file_request;
 
-/* Simple spinlock for serial output */
-static volatile int serial_lock = 0;
-void spin_lock(volatile int *lock) { while (__sync_lock_test_and_set(lock, 1)); }
-void spin_unlock(volatile int *lock) { __sync_lock_release(lock); }
+/* Global HHDM offset – used by PMM, VMM, etc. */
+uint64_t hhdm_offset = 0;
+
+/* Simple lock for serial output */
+static spinlock_t serial_lock = 0;
 
 void kernel_panic(const char *msg) {
     serial_write("\n\n[KERNEL PANIC] ");
@@ -50,7 +54,9 @@ void thread_b(void) {
 }
 
 void _start(void) {
-    /* Fetch Limine responses */
+    /* --- Fetch Limine responses --- */
+
+    /* Framebuffer */
     struct limine_framebuffer_response *fb_resp =
         (struct limine_framebuffer_response *)framebuffer_request.response;
     struct limine_framebuffer *fb = NULL;
@@ -58,17 +64,19 @@ void _start(void) {
         fb = fb_resp->framebuffers[0];
     }
 
+    /* Memory map */
     struct limine_memmap_response *mm_resp =
         (struct limine_memmap_response *)memmap_request.response;
 
-    uint64_t hhdm_offset = 0;
+    /* HHDM offset */
     struct limine_hhdm_response *hhdm_resp =
         (struct limine_hhdm_response *)hhdm_request.response;
     if (hhdm_resp != NULL) {
         hhdm_offset = hhdm_resp->offset;
     }
 
-    /* Initialize core subsystems */
+    /* --- Initialize core subsystems --- */
+
     serial_init();
     serial_write("\n========================================\n");
     serial_write("Orchid Microkernel v0.2.0 (preemptive)\n");
@@ -92,7 +100,13 @@ void _start(void) {
         }
         serial_printf("[boot] Total usable RAM: %d MB\n", total_usable / (1024 * 1024));
     }
-    serial_printf("[boot] HHDM offset: 0x%x\n", hhdm_offset);
+
+    /* Initialize memory managers (PMM needs hhdm_offset set first) */
+    pmm_init();
+    vmm_init();
+
+    /* Print HHDM offset correctly (no double '0x') */
+    serial_printf("[boot] HHDM offset: %x\n", hhdm_offset);
 
     /* Setup scheduling infrastructure */
     gdt_init();
@@ -100,23 +114,23 @@ void _start(void) {
     pit_init();
     scheduler_init();
 
-    /* Unmask IRQ0 (timer) */
+    /* Unmask IRQ0 (timer) only */
     __asm__ volatile (
-        "movb $0xFC, %%al\n"
+        "movb $0xFC, %%al\n"   /* 0xFC = 11111100b – enable only IRQ0 */
         "outb %%al, $0x21\n"
         "movb $0xFF, %%al\n"
         "outb %%al, $0xA1\n"
         ::: "al"
     );
 
-    /* Create demo threads */
+    /* Create two demo threads */
     thread_create(thread_a, "thread_a");
     thread_create(thread_b, "thread_b");
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();
 
-    /* Idle loop */
+    /* Idle loop – the scheduler will take over */
     for (;;) {
         __asm__ volatile ("hlt");
     }
