@@ -7,21 +7,22 @@
 
 #define STACK_SIZE 4096
 
-static thread_t *ready_queue = NULL;
-thread_t *current_thread = NULL;
 static spinlock_t sched_lock = 0;
+thread_t *current_thread = NULL;
+static thread_t *ready_queue = NULL;
 
-/* Idle thread – runs when nothing else is ready */
 static void idle_thread(void) {
     for (;;) {
         __asm__ volatile ("sti; hlt");
     }
 }
 
-extern void __switch_to(thread_t *old, thread_t *new);
+extern void __switch_to(thread_t *old, thread_t *new, uint64_t new_cr3);
 
 void scheduler_init(void) {
-    thread_t *idle = thread_create(idle_thread, "idle");
+    uint64_t kernel_cr3;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(kernel_cr3));
+    thread_t *idle = thread_create(idle_thread, "idle", kernel_cr3);
     if (!idle) {
         serial_write("[SCHED] Failed to create idle thread\n");
         return;
@@ -30,14 +31,12 @@ void scheduler_init(void) {
     current_thread = idle;
 }
 
-thread_t *thread_create(void (*entry)(void), const char *name) {
-    (void)name; /* reserved for future use */
+thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3) {
+    (void)name;
 
-    /* Allocate TCB */
     thread_t *t = kmalloc(sizeof(thread_t));
     if (!t) return NULL;
 
-    /* Allocate kernel stack */
     void *stack = kmalloc(STACK_SIZE);
     if (!stack) {
         kfree(t);
@@ -45,47 +44,33 @@ thread_t *thread_create(void (*entry)(void), const char *name) {
     }
 
     t->kernel_stack = (uint64_t)stack + STACK_SIZE;
+    t->cr3 = cr3;
 
-    /*
-     * Set up initial stack frame as if the thread was interrupted.
-     * The CPU pushes SS, RSP, RFLAGS, CS, RIP.
-     * The ISR stub then pushes 15 general-purpose registers,
-     * interrupt number, and an error code.
-     * Total: 22 qwords (5 + 2 + 15).
-     */
     uint64_t *frame = (uint64_t *)t->kernel_stack - 22;
-    for (int i = 0; i < 15; i++) frame[i] = 0;  /* zero out regs */
-    frame[15] = 0;   /* int_no (unused) */
-    frame[16] = 0;   /* err_code (unused) */
+    for (int i = 0; i < 15; i++) frame[i] = 0;
+    frame[15] = 0;
+    frame[16] = 0;
 
-    /* IRET frame */
-    frame[17] = (uint64_t)entry;   /* RIP */
-    frame[18] = 0x08;              /* CS (kernel code selector) */
-    frame[19] = 0x202;             /* RFLAGS (IF=1) */
-    frame[20] = (uint64_t)frame;   /* RSP after iret (point to this frame) */
-    frame[21] = 0x10;              /* SS (kernel data selector) */
+    frame[17] = (uint64_t)entry;
+    frame[18] = 0x08;
+    frame[19] = 0x202;
+    frame[20] = (uint64_t)frame;
+    frame[21] = 0x10;
 
     t->rsp = (uint64_t)frame;
     t->state = THREAD_STATE_READY;
 
-    /* Insert into ready queue */
-    spin_lock(&sched_lock);
-    t->next = ready_queue;
-    ready_queue = t;
-    spin_unlock(&sched_lock);
-
+    scheduler_add_thread(t);
     return t;
 }
 
 void thread_exit(void) {
     spin_lock(&sched_lock);
     if (current_thread) {
-        current_thread->state = 0;   /* dead */
+        current_thread->state = 0;
         current_thread->next = NULL;
     }
     spin_unlock(&sched_lock);
-
-    /* Give up CPU – never returns */
     schedule();
     __builtin_unreachable();
 }
@@ -94,7 +79,7 @@ void thread_block(void) {
     spin_lock(&sched_lock);
     current_thread->state = THREAD_STATE_BLOCKED;
     spin_unlock(&sched_lock);
-    schedule();  /* will not re-add current because state != RUNNING */
+    schedule();
 }
 
 void thread_unblock(thread_t *t) {
@@ -102,7 +87,6 @@ void thread_unblock(thread_t *t) {
     if (t->state == THREAD_STATE_BLOCKED) {
         t->state = THREAD_STATE_READY;
         t->next = NULL;
-        /* Add to tail of ready queue */
         if (ready_queue) {
             thread_t *tail = ready_queue;
             while (tail->next) tail = tail->next;
@@ -125,17 +109,14 @@ void schedule(void) {
     thread_t *next = ready_queue;
     if (!next) {
         spin_unlock(&sched_lock);
-        return;   /* nothing to run (should never happen) */
+        return;
     }
 
-    /* Remove head of ready queue */
     ready_queue = next->next;
 
-    /* If current thread is still runnable, add it to tail */
     if (current_thread->state == THREAD_STATE_RUNNING) {
         current_thread->state = THREAD_STATE_READY;
         current_thread->next = NULL;
-
         if (ready_queue) {
             thread_t *tail = ready_queue;
             while (tail->next) tail = tail->next;
@@ -147,13 +128,21 @@ void schedule(void) {
 
     next->state = THREAD_STATE_RUNNING;
     thread_t *prev = current_thread;
+    uint64_t new_cr3 = next->cr3;
     current_thread = next;
 
     spin_unlock(&sched_lock);
 
-    __switch_to(prev, next);
+    __switch_to(prev, next, new_cr3);
 }
 
 void enable_interrupts(void) {
     __asm__ volatile ("sti");
+}
+
+void scheduler_add_thread(thread_t *t) {
+    spin_lock(&sched_lock);
+    t->next = ready_queue;
+    ready_queue = t;
+    spin_unlock(&sched_lock);
 }

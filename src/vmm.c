@@ -6,99 +6,71 @@
 
 extern uint64_t hhdm_offset;
 
-/* Page table entry accessor macros */
 #define PML4_INDEX(v) (((v) >> 39) & 0x1FF)
 #define PDPT_INDEX(v) (((v) >> 30) & 0x1FF)
 #define PD_INDEX(v)   (((v) >> 21) & 0x1FF)
 #define PT_INDEX(v)   (((v) >> 12) & 0x1FF)
 
-static uint64_t *pml4;   /* Physical address of PML4 (from Limine) */
-
-/* Lock for page table modifications */
+static uint64_t *pml4;
 static spinlock_t vmm_lock = 0;
 
-/* Get the physical address of the next-level table from an entry */
 static inline uint64_t entry_get_addr(uint64_t entry) {
     return (entry & 0x000FFFFFFFFFF000) >> 12;
 }
 
-/* Make a table entry */
 static inline uint64_t make_entry(uint64_t phys, uint64_t flags) {
     return (phys & 0x000FFFFFFFFFF000) | (flags & 0xFFF);
 }
 
-/* Internal: return virtual address for a physical page using HHDM */
 static inline void *phys_to_virt(uint64_t phys) {
     return (void *)(phys + hhdm_offset);
 }
 
 void vmm_init(void) {
     serial_write("[VMM] Initializing...\n");
-
-    /* Get current PML4 physical address from CR3 */
     __asm__ volatile ("mov %%cr3, %0" : "=r"(pml4));
     serial_printf("[VMM] PML4 at phys 0x%x\n", (uint64_t)pml4);
 }
 
 void vmm_map(uint64_t virt, uint64_t phys, uint64_t flags) {
     spin_lock(&vmm_lock);
-
     uint64_t *pml4_virt = phys_to_virt((uint64_t)pml4);
 
-    /* Ensure the address is canonically valid (we're not doing full checks) */
     int pml4_i = PML4_INDEX(virt);
     int pdpt_i = PDPT_INDEX(virt);
     int pd_i   = PD_INDEX(virt);
     int pt_i   = PT_INDEX(virt);
 
-    /* PML4 entry */
     if (!(pml4_virt[pml4_i] & 1)) {
         uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) {
-            spin_unlock(&vmm_lock);
-            return;
-        }
+        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
         uint64_t *pt_virt = phys_to_virt(pt_phys);
         for (int i = 0; i < 512; i++) pt_virt[i] = 0;
         pml4_virt[pml4_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
     }
 
-    /* PDPT entry */
     uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
     if (!(pdpt[pdpt_i] & 1)) {
         uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) {
-            spin_unlock(&vmm_lock);
-            return;
-        }
+        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
         uint64_t *pt_virt = phys_to_virt(pt_phys);
         for (int i = 0; i < 512; i++) pt_virt[i] = 0;
         pdpt[pdpt_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
     }
 
-    /* PD entry */
     uint64_t *pd = phys_to_virt(entry_get_addr(pdpt[pdpt_i]));
     if (!(pd[pd_i] & 1)) {
         uint64_t pt_phys = pmm_alloc_page();
-        if (!pt_phys) {
-            spin_unlock(&vmm_lock);
-            return;
-        }
+        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
         uint64_t *pt_virt = phys_to_virt(pt_phys);
         for (int i = 0; i < 512; i++) pt_virt[i] = 0;
         pd[pd_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
     }
 
-    /* PT entry */
     uint64_t *pt = phys_to_virt(entry_get_addr(pd[pd_i]));
-    if (pt[pt_i] & 1) {
-        /* Already mapped - we could panic, but for now just overwrite */
-    }
     pt[pt_i] = make_entry(phys, flags | VMM_PRESENT);
 
-    /* Invalidate TLB for this page */
     __asm__ volatile ("invlpg (%0)" : : "r"(virt) : "memory");
-
     spin_unlock(&vmm_lock);
 }
 
@@ -107,24 +79,15 @@ void vmm_unmap(uint64_t virt) {
     uint64_t *pml4_virt = phys_to_virt((uint64_t)pml4);
 
     int pml4_i = PML4_INDEX(virt);
-    if (!(pml4_virt[pml4_i] & 1)) {
-        spin_unlock(&vmm_lock);
-        return;
-    }
+    if (!(pml4_virt[pml4_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
     int pdpt_i = PDPT_INDEX(virt);
-    if (!(pdpt[pdpt_i] & 1)) {
-        spin_unlock(&vmm_lock);
-        return;
-    }
+    if (!(pdpt[pdpt_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pd = phys_to_virt(entry_get_addr(pdpt[pdpt_i]));
     int pd_i = PD_INDEX(virt);
-    if (!(pd[pd_i] & 1)) {
-        spin_unlock(&vmm_lock);
-        return;
-    }
+    if (!(pd[pd_i] & 1)) { spin_unlock(&vmm_lock); return; }
 
     uint64_t *pt = phys_to_virt(entry_get_addr(pd[pd_i]));
     int pt_i = PT_INDEX(virt);
@@ -141,30 +104,65 @@ uint64_t vmm_virt_to_phys(uint64_t virt) {
 
     int pml4_i = PML4_INDEX(virt);
     if (!(pml4_virt[pml4_i] & 1)) goto out;
-
     uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
     int pdpt_i = PDPT_INDEX(virt);
     if (!(pdpt[pdpt_i] & 1)) goto out;
-
     uint64_t *pd = phys_to_virt(entry_get_addr(pdpt[pdpt_i]));
     int pd_i = PD_INDEX(virt);
     if (!(pd[pd_i] & 1)) goto out;
-
     uint64_t *pt = phys_to_virt(entry_get_addr(pd[pd_i]));
     int pt_i = PT_INDEX(virt);
     if (!(pt[pt_i] & 1)) goto out;
 
-    phys = entry_get_addr(pt[pt_i]) << 12;
-    phys |= (virt & 0xFFF);
-
+    phys = (entry_get_addr(pt[pt_i]) << 12) | (virt & 0xFFF);
 out:
     spin_unlock(&vmm_lock);
     return phys;
 }
 
-/* --- Simple Kernel Heap (kmalloc/kfree) --- */
+void vmm_map_user(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags, int is_user) {
+    spin_lock(&vmm_lock);
+    uint64_t *pml4_virt = phys_to_virt(pml4_phys);
 
-#define HEAP_START_VIRT 0xFFFFF00000000000  /* High virtual area for heap */
+    int pml4_i = PML4_INDEX(virt);
+    if (!(pml4_virt[pml4_i] & 1)) {
+        uint64_t pt_phys = pmm_alloc_page();
+        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
+        uint64_t *pt_virt = phys_to_virt(pt_phys);
+        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
+        pml4_virt[pml4_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
+    }
+
+    uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
+    int pdpt_i = PDPT_INDEX(virt);
+    if (!(pdpt[pdpt_i] & 1)) {
+        uint64_t pt_phys = pmm_alloc_page();
+        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
+        uint64_t *pt_virt = phys_to_virt(pt_phys);
+        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
+        pdpt[pdpt_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
+    }
+
+    uint64_t *pd = phys_to_virt(entry_get_addr(pdpt[pdpt_i]));
+    int pd_i = PD_INDEX(virt);
+    if (!(pd[pd_i] & 1)) {
+        uint64_t pt_phys = pmm_alloc_page();
+        if (!pt_phys) { spin_unlock(&vmm_lock); return; }
+        uint64_t *pt_virt = phys_to_virt(pt_phys);
+        for (int i = 0; i < 512; i++) pt_virt[i] = 0;
+        pd[pd_i] = make_entry(pt_phys, VMM_PRESENT | VMM_WRITABLE);
+    }
+
+    uint64_t *pt = phys_to_virt(entry_get_addr(pd[pd_i]));
+    int pt_i = PT_INDEX(virt);
+    uint64_t entry = make_entry(phys, flags | VMM_PRESENT | (is_user ? VMM_USER : 0));
+    pt[pt_i] = entry;
+
+    spin_unlock(&vmm_lock);
+}
+
+/* --- Kernel heap --- */
+#define HEAP_START_VIRT 0xFFFFF00000000000
 #define HEAP_INITIAL_PAGES 16
 
 typedef struct heap_block {
@@ -176,33 +174,25 @@ typedef struct heap_block {
 static heap_block_t *heap_head = NULL;
 static spinlock_t heap_lock = 0;
 static int heap_initialized = 0;
-static uint64_t heap_end_virt = HEAP_START_VIRT;   /* current end of mapped heap */
+static uint64_t heap_end_virt = HEAP_START_VIRT;
 
-/* Must be called with heap_lock held */
 static int heap_expand_locked(size_t min_size) {
-    /* Allocate one page */
     uint64_t phys = pmm_alloc_page();
     if (!phys) return 0;
-
-    /* Map it at the end of the heap area */
     vmm_map(heap_end_virt, phys, VMM_PRESENT | VMM_WRITABLE);
 
-    /* Create a free block spanning the new page */
     heap_block_t *new_block = (heap_block_t *)heap_end_virt;
     new_block->size = PAGE_SIZE - sizeof(heap_block_t);
     new_block->free = 1;
     new_block->next = NULL;
 
-    /* Append to the end of the heap list */
     if (heap_head == NULL) {
         heap_head = new_block;
     } else {
         heap_block_t *last = heap_head;
         while (last->next) last = last->next;
-        /* Coalesce with previous block if it is free (and contiguous) */
         if (last->free && (uint64_t)((char*)last + sizeof(heap_block_t) + last->size) == heap_end_virt) {
             last->size += sizeof(heap_block_t) + new_block->size;
-            /* last->next stays NULL */
         } else {
             last->next = new_block;
         }
@@ -213,36 +203,29 @@ static int heap_expand_locked(size_t min_size) {
 }
 
 static void heap_init(void) {
-    /* Allocate initial memory for the heap */
     for (int i = 0; i < HEAP_INITIAL_PAGES; i++) {
         uint64_t phys = pmm_alloc_page();
         if (!phys) break;
         vmm_map(HEAP_START_VIRT + i * PAGE_SIZE, phys, VMM_PRESENT | VMM_WRITABLE);
         heap_end_virt = HEAP_START_VIRT + (i + 1) * PAGE_SIZE;
     }
-
-    heap_block_t *initial = (heap_block_t *)HEAP_START_VIRT;
-    initial->size = heap_end_virt - HEAP_START_VIRT - sizeof(heap_block_t);
-    initial->free = 1;
-    initial->next = NULL;
-    heap_head = initial;
+    heap_head = (heap_block_t *)HEAP_START_VIRT;
+    heap_head->size = heap_end_virt - HEAP_START_VIRT - sizeof(heap_block_t);
+    heap_head->free = 1;
+    heap_head->next = NULL;
     heap_initialized = 1;
 }
 
 void *kmalloc(size_t size) {
     spin_lock(&heap_lock);
-    if (!heap_initialized) {
-        heap_init();
-    }
+    if (!heap_initialized) heap_init();
 
-    /* Align size to 8 bytes */
     size = (size + 7) & ~7;
 
     while (1) {
         heap_block_t *curr = heap_head;
         while (curr) {
             if (curr->free && curr->size >= size) {
-                /* Split block if remainder is enough for a new header */
                 if (curr->size >= size + sizeof(heap_block_t) + 8) {
                     heap_block_t *new_block = (heap_block_t *)((char *)(curr + 1) + size);
                     new_block->size = curr->size - size - sizeof(heap_block_t);
@@ -257,13 +240,10 @@ void *kmalloc(size_t size) {
             }
             curr = curr->next;
         }
-
-        /* No block found – try to expand the heap */
         if (!heap_expand_locked(size)) {
             spin_unlock(&heap_lock);
-            return NULL;   /* out of physical memory */
+            return NULL;
         }
-        /* Loop again; the new free block will be found */
     }
 }
 
@@ -273,19 +253,18 @@ void kfree(void *ptr) {
     heap_block_t *block = (heap_block_t *)ptr - 1;
     block->free = 1;
 
-    /* Merge with next block if free */
     if (block->next && block->next->free) {
         block->size += sizeof(heap_block_t) + block->next->size;
         block->next = block->next->next;
     }
 
-    /* Attempt to merge with previous block (simple linear search) */
     heap_block_t *prev = NULL;
     for (heap_block_t *cur = heap_head; cur; cur = cur->next) {
         if (cur == block) break;
         prev = cur;
     }
-    if (prev && prev->free && (uint64_t)((char*)prev + sizeof(heap_block_t) + prev->size) == (uint64_t)block) {
+    if (prev && prev->free &&
+        (uint64_t)((char*)prev + sizeof(heap_block_t) + prev->size) == (uint64_t)block) {
         prev->size += sizeof(heap_block_t) + block->size;
         prev->next = block->next;
     }

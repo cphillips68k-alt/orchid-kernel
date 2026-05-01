@@ -13,6 +13,7 @@
 #include "tss.h"
 #include "ipc.h"
 #include "bus.h"
+#include "user.h"
 #include "sync.h"
 
 /* Limine request/response declarations */
@@ -24,6 +25,8 @@ extern volatile struct limine_kernel_file_request kernel_file_request;
 
 /* Global HHDM offset – used by PMM, VMM, etc. */
 uint64_t hhdm_offset = 0;
+uint64_t kernel_cr3;               /* current kernel CR3, set after paging init */
+uint64_t syscall_retval;           /* return value for last syscall */
 
 /* Simple lock for serial output */
 static spinlock_t serial_lock = 0;
@@ -107,8 +110,6 @@ void echo_client(void) {
 
 void _start(void) {
     /* --- Fetch Limine responses --- */
-
-    /* Framebuffer */
     struct limine_framebuffer_response *fb_resp =
         (struct limine_framebuffer_response *)framebuffer_request.response;
     struct limine_framebuffer *fb = NULL;
@@ -116,11 +117,9 @@ void _start(void) {
         fb = fb_resp->framebuffers[0];
     }
 
-    /* Memory map */
     struct limine_memmap_response *mm_resp =
         (struct limine_memmap_response *)memmap_request.response;
 
-    /* HHDM offset */
     struct limine_hhdm_response *hhdm_resp =
         (struct limine_hhdm_response *)hhdm_request.response;
     if (hhdm_resp != NULL) {
@@ -128,7 +127,6 @@ void _start(void) {
     }
 
     /* --- Initialize core subsystems --- */
-
     serial_init();
     serial_write("\n========================================\n");
     serial_write("Orchid Microkernel v0.2.0 (preemptive)\n");
@@ -156,6 +154,7 @@ void _start(void) {
     /* Initialize memory managers (PMM needs hhdm_offset set first) */
     pmm_init();
     vmm_init();
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(kernel_cr3));   /* save kernel CR3 */
 
     /* Print HHDM offset correctly (no double '0x') */
     serial_printf("[boot] HHDM offset: %x\n", hhdm_offset);
@@ -180,10 +179,14 @@ void _start(void) {
     );
 
     /* Create demo threads */
-    thread_create(thread_a, "thread_a");
-    thread_create(thread_b, "thread_b");
-    thread_create(echo_service, "echo_svc");
-    thread_create(echo_client, "echo_cli");
+    thread_create(thread_a, "thread_a", kernel_cr3);
+    thread_create(thread_b, "thread_b", kernel_cr3);
+    thread_create(echo_service, "echo_svc", kernel_cr3);
+    thread_create(echo_client, "echo_cli", kernel_cr3);
+
+    /* Create a user‑mode thread */
+    serial_write("[boot] Launching user thread...\n");
+    user_thread_create();
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();

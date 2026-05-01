@@ -19,10 +19,8 @@ struct idt_ptr {
 static struct idt_entry idt[256];
 static struct idt_ptr   idtp;
 
-extern void isr0();
-extern void isr1();
-// ... we'll use a stub array in assembly; for brevity we just declare all 48 entries
 extern uint64_t isr_stub_table[];
+extern void syscall_entry(void);
 
 void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags) {
     idt[num].base_low  = base & 0xFFFF;
@@ -38,7 +36,6 @@ void idt_init() {
     idtp.limit = sizeof(idt) - 1;
     idtp.base  = (uint64_t)&idt;
 
-    // Remap PIC - master to 0x20, slave to 0x28
     __asm__ volatile (
         "movb $0x11, %%al\n"
         "outb %%al, $0x20\n"
@@ -57,7 +54,6 @@ void idt_init() {
         ::: "al"
     );
 
-    // Mask all interrupts initially
     __asm__ volatile (
         "movb $0xFF, %%al\n"
         "outb %%al, $0x21\n"
@@ -65,16 +61,32 @@ void idt_init() {
         ::: "al"
     );
 
-    // Install exception handlers (0-31)
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 32; i++)
         idt_set_gate(i, isr_stub_table[i], 0x08, 0x8E);
-    }
-
-    // Install IRQ handlers (32-47)
-    for (int i = 32; i < 48; i++) {
+    for (int i = 32; i < 48; i++)
         idt_set_gate(i, isr_stub_table[i], 0x08, 0x8E);
-    }
 
-    // Load IDT
     __asm__ volatile ("lidt (%0)" : : "r"(&idtp));
+
+    /* Enable SYSCALL/SYSRET */
+    __asm__ volatile (
+        "mov $0xC0000080, %%ecx\n"
+        "rdmsr\n"
+        "or $1, %%eax\n"
+        "wrmsr\n"
+        "mov $0xC0000081, %%ecx\n"
+        "mov $0x00180008, %%eax\n"   /* STAR: kernel CS 0x08, user CS base 0x18 */
+        "xor %%edx, %%edx\n"
+        "wrmsr\n"
+        "mov $0xC0000082, %%ecx\n"
+        "mov %0, %%rax\n"
+        "mov %%rax, %%rdx\n"
+        "shr $32, %%rdx\n"
+        "wrmsr\n"
+        "mov $0xC0000084, %%ecx\n"
+        "mov $0x300, %%eax\n"        /* SFMASK: disable interrupts during syscall */
+        "xor %%edx, %%edx\n"
+        "wrmsr\n"
+        : : "r"(syscall_entry) : "rax","rcx","rdx","memory"
+    );
 }

@@ -8,7 +8,6 @@ CFLAGS = -std=c11 -ffreestanding -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
 
 LDFLAGS = -T linker.ld -nostdlib -z max-page-size=0x1000 -no-pie
 
-# C source files
 C_SRC = src/main.c \
         src/serial.c \
         src/console.c \
@@ -22,19 +21,19 @@ C_SRC = src/main.c \
         src/vmm.c \
         src/tss.c \
         src/ipc.c \
-        src/bus.c
+        src/bus.c \
+        src/syscalls.c \
+        src/user.c
 
-# Assembly source files
 ASM_SRC = src/isr.S \
           src/switch.S \
-          src/tssflush.S
+          src/tssflush.S \
+          src/syscall_entry.S
 
-# Object files
 C_OBJ = $(C_SRC:.c=.o)
 ASM_OBJ = $(ASM_SRC:.S=.o)
 OBJS = $(C_OBJ) $(ASM_OBJ)
 
-# Target
 KERNEL = kernel.elf
 
 .PHONY: all clean run
@@ -45,17 +44,14 @@ $(KERNEL): $(OBJS) linker.ld
 	@echo "  LD    $@"
 	@$(LD) $(LDFLAGS) -o $@ $(OBJS)
 
-# C files
 src/%.o: src/%.c
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-# Assembly files
 src/%.o: src/%.S
 	@echo "  AS    $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-# Dependency files
 DEPENDS = $(OBJS:.o=.d)
 -include $(DEPENDS)
 

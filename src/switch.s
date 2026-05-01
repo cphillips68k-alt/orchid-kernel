@@ -13,6 +13,14 @@ __switch_to:
     movq %rsp, (%rdi)
     movq (%rsi), %rsp
 
+    /* Switch page tables if needed */
+    movq %rdx, %rax
+    movq %cr3, %rcx
+    cmpq %rax, %rcx
+    je 1f
+    movq %rax, %cr3
+1:
+
     popq %r15
     popq %r14
     popq %r13
