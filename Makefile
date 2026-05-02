@@ -34,14 +34,16 @@ all: $(KERNEL)
 src/user/init.o: src/user/init.S
 	@echo "  AS    $< (user)"
 	@$(CC) -ffreestanding -nostdlib -static -m64 -o src/user/init.elf $<
+	@$(OBJCOPY) -O binary src/user/init.elf src/user/init.bin
 	@echo "  OBJCOPY $<"
-	@cd src/user && $(OBJCOPY) -I elf64-x86-64 -O elf64-x86-64 -B i386:x86-64 init.elf init.o
+	@cd src/user && $(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 init.bin init.o
 
 src/user/shell.o: src/user/shell.S
 	@echo "  AS    $< (user)"
 	@$(CC) -ffreestanding -nostdlib -static -m64 -o src/user/shell.elf $<
+	@$(OBJCOPY) -O binary src/user/shell.elf src/user/shell.bin
 	@echo "  OBJCOPY $<"
-	@cd src/user && $(OBJCOPY) -I elf64-x86-64 -O elf64-x86-64 -B i386:x86-64 shell.elf shell.o
+	@cd src/user && $(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 shell.bin shell.o
 
 $(KERNEL): $(OBJS) linker.ld
 	@echo "  LD    $@"

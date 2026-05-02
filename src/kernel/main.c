@@ -24,8 +24,8 @@ extern volatile struct limine_framebuffer_request framebuffer_request;
 extern volatile struct limine_memmap_request memmap_request;
 extern volatile struct limine_hhdm_request hhdm_request;
 
-extern uint8_t _binary_init_elf_start[];
-extern uint8_t _binary_init_elf_end[];
+extern uint8_t _binary_init_bin_start[];
+extern uint8_t _binary_init_bin_end[];
 
 uint64_t hhdm_offset = 0;
 uint64_t kernel_cr3;
@@ -187,8 +187,8 @@ void _start(void) {
 
     /* Load init as the first user process */
     serial_write("[debug] loading init...\n");
-    size_t init_size = _binary_init_elf_end - _binary_init_elf_start;
-    int init_pid = elf_load(_binary_init_elf_start, init_size);
+    size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
+    int init_pid = elf_load(_binary_init_bin_start, init_size);
     if (init_pid < 0) {
         serial_write("[boot] Failed to load init!\n");
     } else {
