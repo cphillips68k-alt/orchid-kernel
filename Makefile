@@ -20,7 +20,7 @@ C_SRC = src/kernel/main.c src/kernel/serial.c src/kernel/console.c \
 USER_SRC = src/user/kbd.c src/user/vfs.c
 
 ASM_SRC = src/kernel/isr.S src/kernel/switch.S src/kernel/tssflush.S \
-          src/kernel/syscall_entry.S
+          src/kernel/syscall_entry.S src/kernel/userspace_entry.S
 
 C_OBJ    = $(C_SRC:.c=.o)
 USER_OBJ = $(USER_SRC:.c=.o)

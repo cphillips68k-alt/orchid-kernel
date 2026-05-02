@@ -2,7 +2,7 @@
 #define SCHEDULER_H
 #include <stdint.h>
 
-struct process;   /* forward declaration */
+struct process;
 
 typedef struct thread {
     uint64_t rsp;
@@ -10,7 +10,7 @@ typedef struct thread {
     int state;
     uint64_t cr3;
     int iopl;
-    struct process *process;   /* owning process, NULL for kernel threads */
+    struct process *process;
     struct thread *next;
 } thread_t;
 
@@ -21,7 +21,10 @@ typedef struct thread {
 extern thread_t *current_thread;
 
 void scheduler_init(void);
-thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3, struct process *proc);
+thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
+                        struct process *proc);
+thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
+                             uint64_t pml4_phys, struct process *proc);
 void schedule(void);
 void enable_interrupts(void);
 void thread_exit(void);
