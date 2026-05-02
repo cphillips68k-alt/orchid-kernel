@@ -3,10 +3,11 @@
 #include <stdint.h>
 
 typedef struct thread {
-    uint64_t rsp;            /* saved stack pointer */
-    uint64_t kernel_stack;   /* base of stack (for freeing later) */
+    uint64_t rsp;
+    uint64_t kernel_stack;
     int state;
-    uint64_t cr3;            /* CR3 value when thread is active */
+    uint64_t cr3;
+    int iopl;              /* 0 = no port access, 3 = all ports */
     struct thread *next;
 } thread_t;
 

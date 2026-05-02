@@ -8,7 +8,7 @@
 
 #define STACK_SIZE 4096
 
-extern uint64_t kernel_cr3;      /* defined in main.c */
+extern uint64_t kernel_cr3;
 
 static spinlock_t sched_lock = 0;
 thread_t *current_thread = NULL;
@@ -46,6 +46,7 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3) {
 
     t->kernel_stack = (uint64_t)stack + STACK_SIZE;
     t->cr3 = cr3;
+    t->iopl = 0;               /* default: no I/O ports */
 
     uint64_t *frame = (uint64_t *)t->kernel_stack - 22;
     for (int i = 0; i < 15; i++) frame[i] = 0;
@@ -129,9 +130,11 @@ void schedule(void) {
 
     next->state = THREAD_STATE_RUNNING;
 
-    /* --- Fix: update TSS RSP0 for user threads --- */
-    if (next->cr3 != kernel_cr3)   /* user thread */
+    /* User thread handling */
+    if (next->cr3 != kernel_cr3) {
         tss_set_rsp0(next->kernel_stack);
+        tss_set_io_bitmap(next->iopl == 3);
+    }
 
     thread_t *prev = current_thread;
     uint64_t new_cr3 = next->cr3;

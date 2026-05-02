@@ -15,8 +15,13 @@
 #include "bus.h"
 #include "user.h"
 #include "sync.h"
+#include "proc.h"
+#include "irq.h"
 
-/* Limine request/response declarations */
+/* Missing declarations for service threads */
+extern void vfs_service(void);
+extern void kbd_service(void);
+
 extern volatile struct limine_framebuffer_request framebuffer_request;
 extern volatile struct limine_memmap_request memmap_request;
 extern volatile struct limine_hhdm_request hhdm_request;
@@ -34,7 +39,6 @@ void kernel_panic(const char *msg) {
     for (;;) __asm__ volatile ("hlt");
 }
 
-/* Demo threads */
 void thread_a(void) {
     for (int i = 0; i < 10; i++) {
         spin_lock(&serial_lock);
@@ -65,7 +69,6 @@ void echo_service(void) {
     spin_lock(&serial_lock);
     serial_printf("Echo service started on port %d\n", port);
     spin_unlock(&serial_lock);
-
     for (;;) {
         struct ipc_message msg;
         ipc_recv(port, &msg);
@@ -75,51 +78,40 @@ void echo_service(void) {
 
 void echo_client(void) {
     for (volatile int i = 0; i < 1000000; i++);
-
     int port = bus_lookup("echo");
     if (port < 0) {
         serial_write("Echo service not found!\n");
         thread_exit();
         return;
     }
-
     struct ipc_message msg;
     msg.length = 13;
     for (int i = 0; i < 13; i++) msg.data[i] = "Hello, world!"[i];
-
     spin_lock(&serial_lock);
     serial_printf("Client sending to port %d: %s\n", port, msg.data);
     spin_unlock(&serial_lock);
-
     ipc_send(port, &msg);
     ipc_recv(port, &msg);
-
     spin_lock(&serial_lock);
     serial_printf("Client received reply: %s\n", msg.data);
     spin_unlock(&serial_lock);
-
     thread_exit();
 }
 
 void _start(void) {
-    /* --- Fetch Limine responses --- */
     struct limine_framebuffer_response *fb_resp =
         (struct limine_framebuffer_response *)framebuffer_request.response;
     struct limine_framebuffer *fb = NULL;
-    if (fb_resp != NULL && fb_resp->framebuffer_count > 0) {
+    if (fb_resp != NULL && fb_resp->framebuffer_count > 0)
         fb = fb_resp->framebuffers[0];
-    }
 
     struct limine_memmap_response *mm_resp =
         (struct limine_memmap_response *)memmap_request.response;
 
     struct limine_hhdm_response *hhdm_resp =
         (struct limine_hhdm_response *)hhdm_request.response;
-    if (hhdm_resp != NULL) {
-        hhdm_offset = hhdm_resp->offset;
-    }
+    if (hhdm_resp != NULL) hhdm_offset = hhdm_resp->offset;
 
-    /* --- Initialize core subsystems --- */
     serial_init();
     serial_write("\n========================================\n");
     serial_write("Orchid Microkernel v0.2.0 (preemptive)\n");
@@ -144,20 +136,20 @@ void _start(void) {
         serial_printf("[boot] Total usable RAM: %d MB\n", total_usable / (1024 * 1024));
     }
 
-    /* Initialize memory managers */
     pmm_init();
     vmm_init();
     __asm__ volatile ("mov %%cr3, %0" : "=r"(kernel_cr3));
     serial_printf("[boot] HHDM offset: %x\n", hhdm_offset);
 
-    /* Setup hardware and scheduling */
     gdt_init();
     idt_init();
     pit_init();
     scheduler_init();
     tss_init();
 
-    /* Unmask IRQ0 (timer) only */
+    irq_init();
+    proc_init();
+
     __asm__ volatile (
         "movb $0xFC, %%al\n"
         "outb %%al, $0x21\n"
@@ -166,7 +158,6 @@ void _start(void) {
         ::: "al"
     );
 
-    /* Create kernel demo threads */
     uint64_t krnl_cr3;
     __asm__ volatile ("mov %%cr3, %0" : "=r"(krnl_cr3));
     thread_create(thread_a, "thread_a", krnl_cr3);
@@ -174,15 +165,16 @@ void _start(void) {
     thread_create(echo_service, "echo_svc", krnl_cr3);
     thread_create(echo_client, "echo_cli", krnl_cr3);
 
-    /* Create a user‑mode thread */
+    /* VFS service (kernel‑resident for now) */
+    thread_create(vfs_service, "vfs", krnl_cr3);
+    /* Keyboard driver (also kernel‑resident until we have user loader) */
+    thread_create(kbd_service, "kbd", krnl_cr3);
+
     serial_write("[boot] Launching user thread...\n");
     user_thread_create();
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();
 
-    /* Idle loop – the scheduler will take over */
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
+    for (;;) __asm__ volatile ("hlt");
 }

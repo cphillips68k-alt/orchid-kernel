@@ -22,20 +22,26 @@ struct tss {
 
 static struct tss tss_data;
 
+static uint8_t io_bitmap_zero[4096] __attribute__((aligned(4096))) = {0};
+static uint8_t io_bitmap_full[4096] __attribute__((aligned(4096))) = {
+    [0 ... 4095] = 0xFF
+};
+
 extern void tss_flush(uint16_t sel);
 
 void tss_init(void) {
-    /* Zero the TSS */
-    for (int i = 0; i < sizeof(tss_data); i++)
+    for (size_t i = 0; i < sizeof(tss_data); i++)
         ((volatile uint8_t*)&tss_data)[i] = 0;
-
-    /* Set up the TSS entry in the GDT */
     gdt_set_tss((uint64_t)&tss_data);
-
-    /* Load the TSS selector (0x18 = 5th entry: after NULL, code, data, user code, user data) */
-    tss_flush(0x18);
+    tss_flush(0x28);
 }
 
 void tss_set_rsp0(uint64_t rsp0) {
     tss_data.rsp0 = rsp0;
+}
+
+void tss_set_io_bitmap(int full) {
+    tss_data.iopb_offset = full
+        ? (uint16_t)((uint64_t)io_bitmap_full - (uint64_t)&tss_data)
+        : (uint16_t)((uint64_t)io_bitmap_zero - (uint64_t)&tss_data);
 }

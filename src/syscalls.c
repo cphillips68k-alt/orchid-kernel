@@ -2,6 +2,8 @@
 #include "serial.h"
 #include "scheduler.h"
 #include "timer.h"
+#include "proc.h"
+#include "irq.h"
 
 extern uint64_t syscall_retval;
 
@@ -15,12 +17,11 @@ static uint64_t do_write(uint64_t fd, const char *buf, uint64_t count) {
 
 static void do_sleep(uint64_t seconds) {
     uint64_t now = timer_get_ticks();
-    uint64_t deadline = now + seconds * 100;   /* 100 ticks per second */
+    uint64_t deadline = now + seconds * 100;
     sleep_until(deadline);
 }
 
 static void do_nanosleep(uint64_t nanoseconds) {
-    /* Convert nanoseconds to ticks (1 tick = 10 ms = 10,000,000 ns) */
     uint64_t ticks_to_wait = (nanoseconds + 9999999) / 10000000;
     uint64_t now = timer_get_ticks();
     sleep_until(now + ticks_to_wait);
@@ -37,6 +38,9 @@ void syscall_handler(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3,
         case SYS_gettid:     syscall_retval = (uint64_t)current_thread; break;
         case SYS_sleep:      do_sleep(a1); syscall_retval = 0; break;
         case SYS_nanosleep:  do_nanosleep(a1); syscall_retval = 0; break;
+        case SYS_fork:       syscall_retval = sys_fork(); break;
+        case SYS_iopl:       if (a1 == 3) current_thread->iopl = 3; syscall_retval = 0; break;
+        case SYS_irq_register: syscall_retval = irq_register((uint8_t)a1, a2); break;
         case SYS_yield:      schedule(); syscall_retval = 0; break;
         case SYS_exit:       thread_exit(); break;
         default:             syscall_retval = (uint64_t)-1; break;
