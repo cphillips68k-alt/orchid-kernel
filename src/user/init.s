@@ -5,37 +5,35 @@ _start:
     lea    shell_name(%rip), %rdi
     lea    shell_buf(%rip), %rsi
     mov    $4096, %rdx
-    mov    $11, %rax           # SYS_get_binary
+    mov    $11, %rax
     syscall
 
-    # save size in %r12
     mov    %rax, %r12
     test   %rax, %rax
     jz     loop_forever
     cmp    $4096, %rax
     ja     loop_forever
 
-    # sys_fork()
+    # fork
     mov    $7, %rax
     syscall
 
-    # parent loop if rax != 0, else exec
     test   %rax, %rax
     jnz    loop_forever
 
-    # child: sys_exec(shell_buf, size)
+    # child: exec(shell_buf, size)
     lea    shell_buf(%rip), %rdi
     mov    %r12, %rsi
-    mov    $10, %rax           # SYS_exec
+    mov    $10, %rax
     syscall
 
-    # fallback exit if exec failed
+    # fallback exit
     mov    $60, %rax
     xor    %rdi, %rdi
     syscall
 
 loop_forever:
-    mov    $158, %rax          # SYS_yield
+    mov    $158, %rax
     syscall
     jmp    loop_forever
 
