@@ -160,10 +160,19 @@ void _start(void) {
 
     uint64_t krnl_cr3;
     __asm__ volatile ("mov %%cr3, %0" : "=r"(krnl_cr3));
-    thread_create(thread_a, "thread_a", krnl_cr3, NULL);
-    thread_create(thread_b, "thread_b", krnl_cr3, NULL);
-    thread_create(echo_service, "echo_svc", krnl_cr3, NULL);
-    thread_create(echo_client, "echo_cli", krnl_cr3, NULL);
+
+    thread_t *t;
+    t = thread_create(thread_a, "thread_a", krnl_cr3, NULL);
+    if (!t) serial_write("[boot] Failed to create thread_a\n");
+
+    t = thread_create(thread_b, "thread_b", krnl_cr3, NULL);
+    if (!t) serial_write("[boot] Failed to create thread_b\n");
+
+    t = thread_create(echo_service, "echo_svc", krnl_cr3, NULL);
+    if (!t) serial_write("[boot] Failed to create echo_svc\n");
+
+    t = thread_create(echo_client, "echo_cli", krnl_cr3, NULL);
+    if (!t) serial_write("[boot] Failed to create echo_cli\n");
 
     /* Load init as the first user process */
     size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
