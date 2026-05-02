@@ -31,8 +31,8 @@ KERNEL   = kernel.elf
 
 all: $(KERNEL)
 
-src/user/init.bin: src/user/init.c
-	@echo "  CC    $< (user)"
+src/user/init.bin: src/user/init.S
+	@echo "  AS    $< (user)"
 	@$(CC) -ffreestanding -nostdlib -static -m64 -o src/user/init.elf $<
 	@$(OBJCOPY) -O binary src/user/init.elf $@
 
@@ -40,8 +40,8 @@ src/user/init.o: src/user/init.bin
 	@echo "  OBJCOPY $<"
 	@cd src/user && $(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 init.bin init.o
 
-src/user/shell.bin: src/user/shell.c
-	@echo "  CC    $< (user)"
+src/user/shell.bin: src/user/shell.S
+	@echo "  AS    $< (user)"
 	@$(CC) -ffreestanding -nostdlib -static -m64 -o src/user/shell.elf $<
 	@$(OBJCOPY) -O binary src/user/shell.elf $@
 
