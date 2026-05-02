@@ -13,6 +13,7 @@
 extern uint64_t syscall_retval;
 extern uint64_t hhdm_offset;
 extern process_t *current_process;
+uint64_t saved_user_rip = 0;
 
 /* Embedded binaries */
 extern uint8_t _binary_init_bin_start[];
