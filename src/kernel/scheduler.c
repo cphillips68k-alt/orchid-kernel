@@ -15,6 +15,7 @@ extern process_t *current_process;
 static spinlock_t sched_lock = 0;
 thread_t *current_thread = NULL;
 static thread_t *ready_queue = NULL;
+static thread_t *idle_thread_ptr = NULL;   /* keep a pointer to the idle thread */
 static int thread_count = 0;
 
 extern void __switch_to(thread_t *old, thread_t *new, uint64_t new_cr3);
@@ -31,6 +32,14 @@ void scheduler_init(void) {
         return;
     }
     idle->state = THREAD_STATE_READY;
+    idle_thread_ptr = idle;
+
+    /* Remove the idle thread from the ready queue immediately.
+       It will only run when no other thread is ready. */
+    spin_lock(&sched_lock);
+    ready_queue = NULL;
+    spin_unlock(&sched_lock);
+
     current_thread = idle;
     serial_printf("[SCHED] Idle thread created, total threads: %d\n", thread_count);
 }
@@ -38,17 +47,10 @@ void scheduler_init(void) {
 thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
                         struct process *proc) {
     thread_t *t = kmalloc(sizeof(thread_t));
-    if (!t) {
-        serial_write("[SCHED] kmalloc failed for thread\n");
-        return NULL;
-    }
+    if (!t) return NULL;
 
     void *stack = kmalloc(STACK_SIZE);
-    if (!stack) {
-        serial_write("[SCHED] stack alloc failed for thread\n");
-        kfree(t);
-        return NULL;
-    }
+    if (!stack) { kfree(t); return NULL; }
 
     t->kernel_stack = (uint64_t)stack + STACK_SIZE;
     t->cr3   = cr3;
@@ -56,19 +58,14 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
     t->process = proc;
 
     uint64_t *stk = (uint64_t *)t->kernel_stack - 7;
-    stk[0] = 0;
-    stk[1] = 0;
-    stk[2] = 0;
-    stk[3] = 0;
-    stk[4] = 0;
-    stk[5] = 0;
+    stk[0] = 0; stk[1] = 0; stk[2] = 0;
+    stk[3] = 0; stk[4] = 0; stk[5] = 0;
     stk[6] = (uint64_t)entry;
 
     t->rsp   = (uint64_t)stk;
     t->state = THREAD_STATE_READY;
 
     scheduler_add_thread(t);
-    serial_printf("[SCHED] Created thread '%s', total: %d\n", name, thread_count);
     return t;
 }
 
@@ -86,17 +83,11 @@ thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
     t->process = proc;
 
     uint64_t *stk = (uint64_t *)t->kernel_stack;
-
     stk -= 5;
-    stk[0] = 0x23;
-    stk[1] = user_stack;
-    stk[2] = 0x202;
-    stk[3] = 0x1B;
-    stk[4] = user_entry;
-
+    stk[0] = 0x23; stk[1] = user_stack;
+    stk[2] = 0x202; stk[3] = 0x1B; stk[4] = user_entry;
     stk--;
     *stk = (uint64_t)userspace_entry;
-
     stk -= 6;
     for (int i = 0; i < 6; i++) stk[i] = 0;
 
@@ -104,8 +95,6 @@ thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
     t->state = THREAD_STATE_READY;
 
     scheduler_add_thread(t);
-    serial_printf("[SCHED] Created user thread (entry=0x%x), total: %d\n",
-                  user_entry, thread_count);
     return t;
 }
 
@@ -144,7 +133,6 @@ void thread_unblock(thread_t *t) {
 }
 
 void schedule(void) {
-    static int call_count = 0;
     spin_lock(&sched_lock);
 
     if (!current_thread) {
@@ -153,19 +141,16 @@ void schedule(void) {
     }
 
     thread_t *next = ready_queue;
+
+    /* If no ready threads, run the idle thread */
     if (!next) {
-        spin_unlock(&sched_lock);
-        return;
+        next = idle_thread_ptr;
+    } else {
+        ready_queue = next->next;
     }
 
-    if (call_count < 3) {
-        serial_printf("[SCHED] schedule #%d: next=0x%x\n", call_count, (uint64_t)next);
-        call_count++;
-    }
-
-    ready_queue = next->next;
-
-    if (current_thread->state == THREAD_STATE_RUNNING) {
+    /* If current is still runnable and not the idle, add to tail */
+    if (current_thread->state == THREAD_STATE_RUNNING && current_thread != idle_thread_ptr) {
         current_thread->state = THREAD_STATE_READY;
         current_thread->next = NULL;
         if (ready_queue) {
