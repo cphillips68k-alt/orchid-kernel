@@ -21,68 +21,44 @@ struct tss_entry {
     uint32_t reserved;
 } __attribute__((packed));
 
-struct gdt_ptr {
+/* All descriptors in one contiguous, packed block */
+static struct {
+    struct gdt_entry entries[5];
+    struct tss_entry tss;
+} __attribute__((packed)) gdt;
+
+static struct gdt_ptr {
     uint16_t limit;
     uint64_t base;
-} __attribute__((packed));
-
-static struct gdt_entry gdt_entries[5];
-static struct tss_entry tss_entry;
-static struct gdt_ptr   gdtp;
+} __attribute__((packed)) gdtp;
 
 extern void gdt_flush(uint64_t);
 
 void gdt_init() {
-    // Null descriptor
-    gdt_entries[0] = (struct gdt_entry){0};
+    gdt.entries[0] = (struct gdt_entry){0};
 
-    // Kernel code (64-bit)
-    gdt_entries[1] = (struct gdt_entry){
-        .limit_low = 0,
-        .base_low = 0,
-        .base_mid = 0,
-        .access = 0x9A,      // present, ring 0, code, readable
-        .granularity = 0x20, // long mode
-        .base_high = 0
+    gdt.entries[1] = (struct gdt_entry){
+        .limit_low = 0, .base_low = 0, .base_mid = 0,
+        .access = 0x9A, .granularity = 0x20, .base_high = 0
+    };
+    gdt.entries[2] = (struct gdt_entry){
+        .limit_low = 0, .base_low = 0, .base_mid = 0,
+        .access = 0x92, .granularity = 0, .base_high = 0
+    };
+    gdt.entries[3] = (struct gdt_entry){
+        .limit_low = 0, .base_low = 0, .base_mid = 0,
+        .access = 0xFA, .granularity = 0x20, .base_high = 0
+    };
+    gdt.entries[4] = (struct gdt_entry){
+        .limit_low = 0, .base_low = 0, .base_mid = 0,
+        .access = 0xF2, .granularity = 0, .base_high = 0
     };
 
-    // Kernel data
-    gdt_entries[2] = (struct gdt_entry){
-        .limit_low = 0,
-        .base_low = 0,
-        .base_mid = 0,
-        .access = 0x92,      // present, ring 0, data, writable
-        .granularity = 0,
-        .base_high = 0
-    };
+    gdt.tss = (struct tss_entry){0};
 
-    // User code (ring 3) – for later
-    gdt_entries[3] = (struct gdt_entry){
-        .limit_low = 0,
-        .base_low = 0,
-        .base_mid = 0,
-        .access = 0xFA,      // present, ring 3, code, readable
-        .granularity = 0x20,
-        .base_high = 0
-    };
+    gdtp.limit = sizeof(gdt) - 1;
+    gdtp.base  = (uint64_t)&gdt;
 
-    // User data
-    gdt_entries[4] = (struct gdt_entry){
-        .limit_low = 0,
-        .base_low = 0,
-        .base_mid = 0,
-        .access = 0xF2,      // present, ring 3, data, writable
-        .granularity = 0,
-        .base_high = 0
-    };
-
-    // Zero out TSS entry initially
-    tss_entry = (struct tss_entry){0};
-
-    gdtp.limit = sizeof(gdt_entries) + sizeof(tss_entry) - 1;
-    gdtp.base  = (uint64_t)&gdt_entries;
-
-    // Load GDT and reload segment registers
     __asm__ volatile (
         "lgdt (%0)\n"
         "mov $0x10, %%ax\n"
@@ -101,12 +77,12 @@ void gdt_init() {
 }
 
 void gdt_set_tss(uint64_t base) {
-    tss_entry.length    = 104;  // fixed size of 64‑bit TSS
-    tss_entry.base_low  = base & 0xFFFF;
-    tss_entry.base_mid  = (base >> 16) & 0xFF;
-    tss_entry.flags1    = 0x89;    // present, 64‑bit TSS
-    tss_entry.flags2    = 0;
-    tss_entry.base_high = (base >> 24) & 0xFF;
-    tss_entry.base_upper = base >> 32;
-    tss_entry.reserved  = 0;
+    gdt.tss.length    = 104;
+    gdt.tss.base_low  = base & 0xFFFF;
+    gdt.tss.base_mid  = (base >> 16) & 0xFF;
+    gdt.tss.flags1    = 0x89;
+    gdt.tss.flags2    = 0;
+    gdt.tss.base_high = (base >> 24) & 0xFF;
+    gdt.tss.base_upper = base >> 32;
+    gdt.tss.reserved  = 0;
 }
