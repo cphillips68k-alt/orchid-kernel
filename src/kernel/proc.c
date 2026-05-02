@@ -6,6 +6,8 @@
 #include "scheduler.h"
 #include <stddef.h>
 
+#define USER_STACK_VADDR 0x800000000000
+
 extern uint64_t kernel_cr3;
 extern uint64_t hhdm_offset;
 extern uint64_t saved_user_rip;  /* set by syscall_entry.S */

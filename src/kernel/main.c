@@ -174,13 +174,7 @@ void _start(void) {
     t = thread_create(echo_client, "echo_cli", krnl_cr3, NULL);
     if (!t) serial_write("[boot] Failed to create echo_cli\n");
 
-    /* Load init as the first user process */
-    size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
-//    int init_pid = elf_load(_binary_init_bin_start, init_size);
-//    if (init_pid < 0)
-//        serial_write("[boot] Failed to load init!\n");
-//    else
-//        serial_printf("[boot] Init loaded, PID %d\n", init_pid);
+    /* TODO: Load init user process once fork/exec is fixed */
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();
