@@ -164,9 +164,7 @@ void schedule(void) {
 
     next->state = THREAD_STATE_RUNNING;
 
-    if (next->cr3 != kernel_cr3) {
-        tss_set_rsp0(next->kernel_stack);
-    }
+    tss_set_rsp0(next->kernel_stack);
 
     thread_t *prev = current_thread;
     uint64_t new_cr3 = next->cr3;
