@@ -15,18 +15,18 @@ extern uint64_t hhdm_offset;
 extern process_t *current_process;
 
 /* Embedded binaries */
-extern uint8_t _binary_init_bin_start[];
-extern uint8_t _binary_init_bin_end[];
-extern uint8_t _binary_shell_bin_start[];
-extern uint8_t _binary_shell_bin_end[];
+extern uint8_t _binary_init_elf_start[];
+extern uint8_t _binary_init_elf_end[];
+extern uint8_t _binary_shell_elf_start[];
+extern uint8_t _binary_shell_elf_end[];
 
 static struct {
     const char *name;
     uint8_t *start;
     uint8_t *end;
 } embedded_binaries[] = {
-    {"init",  _binary_init_bin_start,  _binary_init_bin_end},
-    {"shell", _binary_shell_bin_start, _binary_shell_bin_end},
+    {"init",  _binary_init_elf_start,  _binary_init_elf_end},
+    {"shell", _binary_shell_elf_start, _binary_shell_elf_end},
     {NULL, NULL, NULL}
 };
 
