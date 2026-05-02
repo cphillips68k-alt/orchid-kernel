@@ -33,8 +33,7 @@ void scheduler_init(void) {
     current_thread = idle;
 }
 
-/* Standard kernel thread – uses the callee‑saved + return address layout
-   that __switch_to expects. */
+/* Standard kernel thread – callee‑saved registers + return address */
 thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
                         struct process *proc) {
     (void)name;
@@ -49,7 +48,8 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
     t->iopl  = 0;
     t->process = proc;
 
-    uint64_t *stk = (uint64_t *)t->kernel_stack - 7; /* 6 callee‑saved + return address */
+    /* Build the frame: [ r15 r14 r13 r12 rbx rbp ] [ return address ] */
+    uint64_t *stk = (uint64_t *)t->kernel_stack - 7;
     stk[0] = 0;   /* r15 */
     stk[1] = 0;   /* r14 */
     stk[2] = 0;   /* r13 */
@@ -64,8 +64,7 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
     return t;
 }
 
-/* Create a user thread – the thread will execute `userspace_entry`,
-   which does `iretq` using a pre‑built frame on the kernel stack. */
+/* Create a user thread that will start in user mode via userspace_entry */
 thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
                              uint64_t pml4_phys, struct process *proc) {
     thread_t *t = kmalloc(sizeof(thread_t));
@@ -79,9 +78,15 @@ thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
     t->iopl  = 0;
     t->process = proc;
 
+    /*
+     * Stack layout (growing downward):
+     *   [ iret frame (5 qwords) ]   <-- highest addresses
+     *   [ return address         ]
+     *   [ callee‑saved (6)      ]   <-- t->rsp points here
+     */
     uint64_t *stk = (uint64_t *)t->kernel_stack;
 
-    /* IRET frame (5 qwords) */
+    /* IRET frame */
     stk -= 5;
     stk[0] = 0x23;                /* SS  = user data selector */
     stk[1] = user_stack;          /* RSP */
@@ -89,13 +94,13 @@ thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
     stk[3] = 0x1B;                /* CS  = user code selector */
     stk[4] = user_entry;          /* RIP */
 
-    /* Callee‑saved registers (the switch stub pops these) */
-    stk -= 6;
-    for (int i = 0; i < 6; i++) stk[i] = 0;
-
     /* Return address that __switch_to will pop */
     stk--;
     *stk = (uint64_t)userspace_entry;
+
+    /* Callee‑saved registers */
+    stk -= 6;
+    for (int i = 0; i < 6; i++) stk[i] = 0;
 
     t->rsp   = (uint64_t)stk;
     t->state = THREAD_STATE_READY;
