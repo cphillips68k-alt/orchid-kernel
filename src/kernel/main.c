@@ -137,19 +137,36 @@ void _start(void) {
         serial_printf("[boot] Total usable RAM: %d MB\n", total_usable / (1024 * 1024));
     }
 
+    serial_write("[debug] pmm_init...\n");
     pmm_init();
+
+    serial_write("[debug] vmm_init...\n");
     vmm_init();
     __asm__ volatile ("mov %%cr3, %0" : "=r"(kernel_cr3));
     serial_printf("[boot] HHDM offset: %x\n", hhdm_offset);
 
+    serial_write("[debug] gdt_init...\n");
     gdt_init();
+
+    serial_write("[debug] idt_init...\n");
     idt_init();
+
+    serial_write("[debug] pit_init...\n");
     pit_init();
+
+    serial_write("[debug] scheduler_init...\n");
     scheduler_init();
+
+    serial_write("[debug] tss_init...\n");
     tss_init();
 
+    serial_write("[debug] irq_init...\n");
     irq_init();
+
+    serial_write("[debug] kbd_buf_init...\n");
     kbd_buf_init();
+
+    serial_write("[debug] proc_init...\n");
     proc_init();
 
     __asm__ volatile (
@@ -160,6 +177,7 @@ void _start(void) {
         ::: "al"
     );
 
+    serial_write("[debug] creating kernel threads...\n");
     uint64_t krnl_cr3;
     __asm__ volatile ("mov %%cr3, %0" : "=r"(krnl_cr3));
     thread_create(thread_a, "thread_a", krnl_cr3, NULL);
@@ -168,6 +186,7 @@ void _start(void) {
     thread_create(echo_client, "echo_cli", krnl_cr3, NULL);
 
     /* Load init as the first user process */
+    serial_write("[debug] loading init...\n");
     size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
     int init_pid = elf_load(_binary_init_bin_start, init_size);
     if (init_pid < 0) {
