@@ -23,7 +23,8 @@ C_SRC = src/main.c \
         src/ipc.c \
         src/bus.c \
         src/syscalls.c \
-        src/user.c
+        src/user.c \
+        src/timer.c
 
 ASM_SRC = src/isr.S \
           src/switch.S \

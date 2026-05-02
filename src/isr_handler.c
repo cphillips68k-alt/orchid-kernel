@@ -1,6 +1,7 @@
 #include "isr_handler.h"
 #include "serial.h"
 #include "scheduler.h"
+#include "timer.h"
 
 static void page_fault_handler(uint64_t error_code, uint64_t addr) {
     serial_printf("[PF] Page fault at %x, error %x, killing thread\n", addr, error_code);
@@ -16,6 +17,7 @@ void isr_handler(struct regs *r) {
     }
 
     if (r->int_no == 32) {
+        timer_tick();      /* <--- added: update sleep queue */
         schedule();
     }
 
