@@ -54,20 +54,31 @@ static void memset(void *s, int c, size_t n) {
     for (size_t i = 0; i < n; i++) p[i] = c;
 }
 
-/* Load ELF segments into a process's address space and create a thread */
 static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data, size_t elf_size) {
     (void)elf_size;
     const elf64_ehdr_t *ehdr = (const elf64_ehdr_t *)elf_data;
 
+    /* Check ELF magic */
     if (ehdr->e_ident[0] != 0x7F || ehdr->e_ident[1] != 'E' ||
-        ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F')
+        ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F') {
+        serial_write("[ELF] Bad magic\n");
         return NULL;
+    }
 
-    if (ehdr->e_ident[4] != 2 || ehdr->e_machine != 0x3E)
+    /* Check 64-bit little-endian x86-64 */
+    if (ehdr->e_ident[4] != 2 || ehdr->e_machine != 0x3E) {
+        serial_write("[ELF] Not 64-bit x86-64\n");
         return NULL;
+    }
+
+    serial_printf("[ELF] Entry point: 0x%x\n", ehdr->e_entry);
+    serial_printf("[ELF] Program headers: %d at offset 0x%x\n", ehdr->e_phnum, ehdr->e_phoff);
 
     uint64_t pml4_phys = pmm_alloc_page();
-    if (!pml4_phys) return NULL;
+    if (!pml4_phys) {
+        serial_write("[ELF] Failed to allocate PML4\n");
+        return NULL;
+    }
 
     uint64_t *pml4 = (uint64_t *)(pml4_phys + hhdm_offset);
     memset(pml4, 0, PAGE_SIZE);
@@ -82,9 +93,15 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
         uint64_t virt_start = phdrs[i].p_vaddr & ~0xFFF;
         uint64_t virt_end   = (phdrs[i].p_vaddr + phdrs[i].p_memsz + 0xFFF) & ~0xFFF;
 
+        serial_printf("[ELF] Loading segment: vaddr=0x%x memsz=0x%x filesz=0x%x\n",
+                      phdrs[i].p_vaddr, phdrs[i].p_memsz, phdrs[i].p_filesz);
+
         for (uint64_t vaddr = virt_start; vaddr < virt_end; vaddr += PAGE_SIZE) {
             uint64_t phys = pmm_alloc_page();
-            if (!phys) return NULL;
+            if (!phys) {
+                serial_write("[ELF] Out of memory\n");
+                return NULL;
+            }
 
             uint64_t flags = VMM_PRESENT | VMM_USER;
             if (phdrs[i].p_flags & PF_W) flags |= VMM_WRITABLE;
@@ -115,20 +132,32 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
 
     /* Allocate user stack */
     uint64_t stack_phys = pmm_alloc_page();
-    if (!stack_phys) return NULL;
+    if (!stack_phys) {
+        serial_write("[ELF] Failed to allocate user stack\n");
+        return NULL;
+    }
     vmm_map_user(pml4_phys, 0x800000000000, stack_phys,
                  VMM_PRESENT | VMM_USER | VMM_WRITABLE, 1);
 
-    /* Create kernel thread that will iret to the new process */
+    /* Create thread for this process */
     thread_t *t = kmalloc(sizeof(thread_t));
-    if (!t) return NULL;
+    if (!t) {
+        serial_write("[ELF] Failed to allocate thread\n");
+        return NULL;
+    }
     void *kstack = kmalloc(4096);
-    if (!kstack) { kfree(t); return NULL; }
+    if (!kstack) {
+        kfree(t);
+        serial_write("[ELF] Failed to allocate kernel stack\n");
+        return NULL;
+    }
+
     t->kernel_stack = (uint64_t)kstack + 4096;
     t->cr3 = pml4_phys;
     t->iopl = 0;
     t->process = proc;
 
+    /* Build iret frame to return to user mode at entry point */
     uint64_t *stk = (uint64_t *)t->kernel_stack - 5;
     stk[0] = 0x23;                     /* SS  = user data seg */
     stk[1] = 0x800000000000 + 4096;   /* RSP = top of stack */
@@ -136,7 +165,7 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
     stk[3] = 0x1B;                    /* CS  = user code seg */
     stk[4] = ehdr->e_entry;           /* RIP = entry point */
     stk -= 2;
-    stk[0] = 0; stk[1] = 0;           /* int_no, err_code */
+    stk[0] = 0; stk[1] = 0;
     stk -= 15;
     for (int j = 0; j < 15; j++) stk[j] = 0;
 
@@ -145,12 +174,19 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
 
     proc->pml4_phys = pml4_phys;
     proc->main_thread = t;
+
+    serial_write("[ELF] Process loaded successfully\n");
     return t;
 }
 
 int elf_load(const uint8_t *elf_data, size_t elf_size) {
+    serial_printf("[ELF] Loading binary: size=%d\n", elf_size);
+
     process_t *proc = kmalloc(sizeof(process_t));
-    if (!proc) return -1;
+    if (!proc) {
+        serial_write("[ELF] Failed to allocate process\n");
+        return -1;
+    }
 
     proc->pid = proc_alloc_pid();
     proc->next = NULL;
@@ -171,10 +207,7 @@ void sys_exec(const uint8_t *elf_data, size_t elf_size) {
     thread_t *new_thread = load_elf_into_process(current_process, elf_data, elf_size);
     if (!new_thread) return;
 
-    /* Replace the process's main thread with the new one */
     current_process->main_thread = new_thread;
     scheduler_add_thread(new_thread);
-
-    /* The old thread will exit; the new thread will run. */
     thread_exit();
 }
