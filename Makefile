@@ -22,18 +22,18 @@ USER_SRC = src/user/kbd.c src/user/vfs.c
 ASM_SRC = src/kernel/isr.S src/kernel/switch.S src/kernel/tssflush.S \
           src/kernel/syscall_entry.S
 
-C_OBJ   = $(C_SRC:.c=.o)
-USER_OBJ= $(USER_SRC:.c=.o)
-ASM_OBJ = $(ASM_SRC:.S=.o)
-OBJS    = $(C_OBJ) $(USER_OBJ) $(ASM_OBJ) src/user/init.o src/user/shell.o
+C_OBJ    = $(C_SRC:.c=.o)
+USER_OBJ = $(USER_SRC:.c=.o)
+ASM_OBJ  = $(ASM_SRC:.S=.o)
+OBJS     = $(C_OBJ) $(USER_OBJ) $(ASM_OBJ) src/user/init.o src/user/shell.o
 
-KERNEL  = kernel.elf
+KERNEL   = kernel.elf
 
 all: $(KERNEL)
 
 src/user/init.bin: src/user/init.c
 	@echo "  CC    $< (user)"
-	@$(CC) -ffreestanding -nostdlib -static -o src/user/init.elf $<
+	@$(CC) -ffreestanding -nostdlib -static -m64 -o src/user/init.elf $<
 	@$(OBJCOPY) -O binary src/user/init.elf $@
 
 src/user/init.o: src/user/init.bin
@@ -42,7 +42,7 @@ src/user/init.o: src/user/init.bin
 
 src/user/shell.bin: src/user/shell.c
 	@echo "  CC    $< (user)"
-	@$(CC) -ffreestanding -nostdlib -static -o src/user/shell.elf $<
+	@$(CC) -ffreestanding -nostdlib -static -m64 -o src/user/shell.elf $<
 	@$(OBJCOPY) -O binary src/user/shell.elf $@
 
 src/user/shell.o: src/user/shell.bin
