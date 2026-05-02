@@ -28,10 +28,17 @@ void isr_handler(struct regs *r) {
         page_fault_handler(r->err_code, cr2);
         return;
     }
+
     if (r->int_no == 32) {
+        static int first_tick = 1;
+        if (first_tick) {
+            serial_write("[ISR] First timer tick received\n");
+            first_tick = 0;
+        }
         timer_tick();
         schedule();
     }
+
     if (r->int_no == 33) {
         uint8_t st;
         do { __asm__ volatile ("inb $0x64, %0" : "=a"(st)); } while (!(st & 1));
@@ -44,8 +51,10 @@ void isr_handler(struct regs *r) {
         __asm__ volatile ("outb %%al, $0x20" : : "a"(0x20));
         return;
     }
+
     if (r->int_no >= 32 && r->int_no <= 47) {
-        if (r->int_no >= 40) __asm__ volatile ("outb %%al, $0xA0" : : "a"(0x20));
+        if (r->int_no >= 40)
+            __asm__ volatile ("outb %%al, $0xA0" : : "a"(0x20));
         __asm__ volatile ("outb %%al, $0x20" : : "a"(0x20));
     }
 }

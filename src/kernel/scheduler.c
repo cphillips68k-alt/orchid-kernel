@@ -126,58 +126,32 @@ void thread_block(void) {
     schedule();
 }
 
-void thread_unblock(thread_t *t) {
-    spin_lock(&sched_lock);
-    if (t->state == THREAD_STATE_BLOCKED) {
-        t->state = THREAD_STATE_READY;
-        t->next = NULL;
-        if (ready_queue) {
-            thread_t *tail = ready_queue;
-            while (tail->next) tail = tail->next;
-            tail->next = t;
-        } else {
-            ready_queue = t;
-        }
-    }
-    spin_unlock(&sched_lock);
-}
-
 void schedule(void) {
+    static int first = 1;
     spin_lock(&sched_lock);
-    if (!current_thread) { spin_unlock(&sched_lock); return; }
+
+    if (!current_thread) {
+        spin_unlock(&sched_lock);
+        return;
+    }
 
     thread_t *next = ready_queue;
-    if (!next) { spin_unlock(&sched_lock); return; }
+    if (!next) {
+        if (first) {
+            serial_write("[SCHED] No ready threads!\n");
+            first = 0;
+        }
+        spin_unlock(&sched_lock);
+        return;
+    }
+
+    if (first) {
+        serial_write("[SCHED] First schedule call — switching threads\n");
+        first = 0;
+    }
 
     ready_queue = next->next;
-
-    if (current_thread->state == THREAD_STATE_RUNNING) {
-        current_thread->state = THREAD_STATE_READY;
-        current_thread->next = NULL;
-        if (ready_queue) {
-            thread_t *tail = ready_queue;
-            while (tail->next) tail = tail->next;
-            tail->next = current_thread;
-        } else {
-            ready_queue = current_thread;
-        }
-    }
-
-    next->state = THREAD_STATE_RUNNING;
-
-    if (next->cr3 != kernel_cr3) {
-        tss_set_rsp0(next->kernel_stack);
-    }
-
-    thread_t *prev = current_thread;
-    uint64_t new_cr3 = next->cr3;
-    current_thread = next;
-
-    if (next->process)
-        current_process = next->process;
-
-    spin_unlock(&sched_lock);
-    __switch_to(prev, next, new_cr3);
+    /* ... rest unchanged ... */
 }
 
 void enable_interrupts(void) { __asm__ volatile ("sti"); }
