@@ -17,14 +17,14 @@
 #include "sync.h"
 #include "proc.h"
 #include "irq.h"
-
-/* Missing declarations for service threads */
-extern void vfs_service(void);
-extern void kbd_service(void);
+#include "elf.h"
 
 extern volatile struct limine_framebuffer_request framebuffer_request;
 extern volatile struct limine_memmap_request memmap_request;
 extern volatile struct limine_hhdm_request hhdm_request;
+
+extern uint8_t _binary_init_bin_start[];
+extern uint8_t _binary_init_bin_end[];
 
 uint64_t hhdm_offset = 0;
 uint64_t kernel_cr3;
@@ -114,12 +114,12 @@ void _start(void) {
 
     serial_init();
     serial_write("\n========================================\n");
-    serial_write("Orchid Microkernel v0.2.0 (preemptive)\n");
+    serial_write("Orchid Microkernel v0.3.0 (ELF loader)\n");
     serial_write("========================================\n\n");
 
     if (fb != NULL) {
         console_init(fb);
-        console_write("Orchid Microkernel v0.2.0\n========================\n");
+        console_write("Orchid Microkernel v0.3.0\n========================\n");
         console_printf("Framebuffer: %dx%d, BPP: %d\n", fb->width, fb->height, fb->bpp);
     } else {
         serial_write("[boot] No framebuffer available\n");
@@ -165,13 +165,14 @@ void _start(void) {
     thread_create(echo_service, "echo_svc", krnl_cr3);
     thread_create(echo_client, "echo_cli", krnl_cr3);
 
-    /* VFS service (kernel‑resident for now) */
-    thread_create(vfs_service, "vfs", krnl_cr3);
-    /* Keyboard driver (also kernel‑resident until we have user loader) */
-    thread_create(kbd_service, "kbd", krnl_cr3);
-
-    serial_write("[boot] Launching user thread...\n");
-    user_thread_create();
+    /* Load init as the first user process */
+    size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
+    int init_pid = elf_load(_binary_init_bin_start, init_size);
+    if (init_pid < 0) {
+        serial_write("[boot] Failed to load init!\n");
+    } else {
+        serial_printf("[boot] Init loaded, PID %d\n", init_pid);
+    }
 
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();

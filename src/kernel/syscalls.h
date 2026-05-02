@@ -12,6 +12,7 @@
 #define SYS_fork          7
 #define SYS_iopl          8
 #define SYS_irq_register  9
+#define SYS_exec          10
 #define SYS_yield         158
 #define SYS_exit          60
 

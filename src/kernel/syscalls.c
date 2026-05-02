@@ -4,6 +4,7 @@
 #include "timer.h"
 #include "proc.h"
 #include "irq.h"
+#include "elf.h"
 
 extern uint64_t syscall_retval;
 
@@ -41,6 +42,7 @@ void syscall_handler(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3,
         case SYS_fork:       syscall_retval = sys_fork(); break;
         case SYS_iopl:       if (a1 == 3) current_thread->iopl = 3; syscall_retval = 0; break;
         case SYS_irq_register: syscall_retval = irq_register((uint8_t)a1, a2); break;
+        case SYS_exec:       sys_exec((const uint8_t *)a1, a2); syscall_retval = 0; break;
         case SYS_yield:      schedule(); syscall_retval = 0; break;
         case SYS_exit:       thread_exit(); break;
         default:             syscall_retval = (uint64_t)-1; break;
