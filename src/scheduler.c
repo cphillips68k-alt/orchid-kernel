@@ -3,9 +3,12 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "sync.h"
+#include "tss.h"
 #include <stddef.h>
 
 #define STACK_SIZE 4096
+
+extern uint64_t kernel_cr3;      /* defined in main.c */
 
 static spinlock_t sched_lock = 0;
 thread_t *current_thread = NULL;
@@ -20,8 +23,6 @@ static void idle_thread(void) {
 extern void __switch_to(thread_t *old, thread_t *new, uint64_t new_cr3);
 
 void scheduler_init(void) {
-    uint64_t kernel_cr3;
-    __asm__ volatile ("mov %%cr3, %0" : "=r"(kernel_cr3));
     thread_t *idle = thread_create(idle_thread, "idle", kernel_cr3);
     if (!idle) {
         serial_write("[SCHED] Failed to create idle thread\n");
@@ -127,6 +128,11 @@ void schedule(void) {
     }
 
     next->state = THREAD_STATE_RUNNING;
+
+    /* --- Fix: update TSS RSP0 for user threads --- */
+    if (next->cr3 != kernel_cr3)   /* user thread */
+        tss_set_rsp0(next->kernel_stack);
+
     thread_t *prev = current_thread;
     uint64_t new_cr3 = next->cr3;
     current_thread = next;
