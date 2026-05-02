@@ -33,7 +33,7 @@ void scheduler_init(void) {
     current_thread = idle;
 }
 
-/* Standard kernel thread – callee‑saved registers + return address */
+/* Standard kernel thread */
 thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
                         struct process *proc) {
     (void)name;
@@ -48,7 +48,6 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
     t->iopl  = 0;
     t->process = proc;
 
-    /* Build the frame: [ r15 r14 r13 r12 rbx rbp ] [ return address ] */
     uint64_t *stk = (uint64_t *)t->kernel_stack - 7;
     stk[0] = 0;   /* r15 */
     stk[1] = 0;   /* r14 */
@@ -56,7 +55,7 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
     stk[3] = 0;   /* r12 */
     stk[4] = 0;   /* rbx */
     stk[5] = 0;   /* rbp */
-    stk[6] = (uint64_t)entry;   /* return address */
+    stk[6] = (uint64_t)entry;
 
     t->rsp   = (uint64_t)stk;
     t->state = THREAD_STATE_READY;
@@ -64,7 +63,7 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
     return t;
 }
 
-/* Create a user thread that will start in user mode via userspace_entry */
+/* User thread that starts via userspace_entry */
 thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
                              uint64_t pml4_phys, struct process *proc) {
     thread_t *t = kmalloc(sizeof(thread_t));
@@ -78,23 +77,17 @@ thread_t *thread_create_user(uint64_t user_entry, uint64_t user_stack,
     t->iopl  = 0;
     t->process = proc;
 
-    /*
-     * Stack layout (growing downward):
-     *   [ iret frame (5 qwords) ]   <-- highest addresses
-     *   [ return address         ]
-     *   [ callee‑saved (6)      ]   <-- t->rsp points here
-     */
     uint64_t *stk = (uint64_t *)t->kernel_stack;
 
     /* IRET frame */
     stk -= 5;
-    stk[0] = 0x23;                /* SS  = user data selector */
-    stk[1] = user_stack;          /* RSP */
-    stk[2] = 0x202;               /* RFLAGS (IF=1) */
-    stk[3] = 0x1B;                /* CS  = user code selector */
-    stk[4] = user_entry;          /* RIP */
+    stk[0] = 0x23;
+    stk[1] = user_stack;
+    stk[2] = 0x202;
+    stk[3] = 0x1B;
+    stk[4] = user_entry;
 
-    /* Return address that __switch_to will pop */
+    /* Return address for __switch_to */
     stk--;
     *stk = (uint64_t)userspace_entry;
 
@@ -126,32 +119,58 @@ void thread_block(void) {
     schedule();
 }
 
-void schedule(void) {
-    static int first = 1;
+void thread_unblock(thread_t *t) {
     spin_lock(&sched_lock);
-
-    if (!current_thread) {
-        spin_unlock(&sched_lock);
-        return;
+    if (t->state == THREAD_STATE_BLOCKED) {
+        t->state = THREAD_STATE_READY;
+        t->next = NULL;
+        if (ready_queue) {
+            thread_t *tail = ready_queue;
+            while (tail->next) tail = tail->next;
+            tail->next = t;
+        } else {
+            ready_queue = t;
+        }
     }
+    spin_unlock(&sched_lock);
+}
+
+void schedule(void) {
+    spin_lock(&sched_lock);
+    if (!current_thread) { spin_unlock(&sched_lock); return; }
 
     thread_t *next = ready_queue;
-    if (!next) {
-        if (first) {
-            serial_write("[SCHED] No ready threads!\n");
-            first = 0;
-        }
-        spin_unlock(&sched_lock);
-        return;
-    }
-
-    if (first) {
-        serial_write("[SCHED] First schedule call — switching threads\n");
-        first = 0;
-    }
+    if (!next) { spin_unlock(&sched_lock); return; }
 
     ready_queue = next->next;
-    /* ... rest unchanged ... */
+
+    if (current_thread->state == THREAD_STATE_RUNNING) {
+        current_thread->state = THREAD_STATE_READY;
+        current_thread->next = NULL;
+        if (ready_queue) {
+            thread_t *tail = ready_queue;
+            while (tail->next) tail = tail->next;
+            tail->next = current_thread;
+        } else {
+            ready_queue = current_thread;
+        }
+    }
+
+    next->state = THREAD_STATE_RUNNING;
+
+    if (next->cr3 != kernel_cr3) {
+        tss_set_rsp0(next->kernel_stack);
+    }
+
+    thread_t *prev = current_thread;
+    uint64_t new_cr3 = next->cr3;
+    current_thread = next;
+
+    if (next->process)
+        current_process = next->process;
+
+    spin_unlock(&sched_lock);
+    __switch_to(prev, next, new_cr3);
 }
 
 void enable_interrupts(void) { __asm__ volatile ("sti"); }
