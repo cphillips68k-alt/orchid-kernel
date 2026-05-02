@@ -77,12 +77,14 @@ void echo_service(void) {
 }
 
 void echo_client(void) {
-    int port = -1;
-    while (port < 0) {
-        port = bus_lookup("echo");
-        if (port < 0) {
-            for (volatile int i = 0; i < 100000; i++);
-        }
+    // Wait longer for the echo service to start
+    for (volatile int i = 0; i < 5000000; i++);  // 5x longer delay
+    
+    int port = bus_lookup("echo");
+    if (port < 0) {
+        serial_write("Echo service not found!\n");
+        thread_exit();
+        return;
     }
     struct ipc_message msg;
     msg.length = 13;
