@@ -78,7 +78,7 @@ int elf_load(const uint8_t *data, size_t size) {
 
     proc->pid = proc_alloc_pid();
     proc->next = NULL;
-    current_process = proc;
+    // current_process = proc;
 
     thread_t *t = load_raw(data, size, proc);
     if (!t) {
