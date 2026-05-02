@@ -33,8 +33,8 @@ void scheduler_init(void) {
     current_thread = idle;
 }
 
-/* Standard kernel thread – uses the interrupt frame layout.
-   The thread will start inside `isr_common` after popping everything and iret. */
+/* Standard kernel thread – uses the callee‑saved + return address layout
+   that __switch_to expects. */
 thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
                         struct process *proc) {
     (void)name;
@@ -49,20 +49,16 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3,
     t->iopl  = 0;
     t->process = proc;
 
-    /* Build a full interrupt frame so that the thread runs
-       when the scheduler switches to it and returns from __switch_to
-       via iretq. This is the same layout we used before ELF loading. */
-    uint64_t *frame = (uint64_t *)t->kernel_stack - 22;
-    for (int i = 0; i < 15; i++) frame[i] = 0;   /* r15..rdi */
-    frame[15] = 0;                                 /* int_no */
-    frame[16] = 0;                                 /* err_code */
-    frame[17] = (uint64_t)entry;                   /* RIP */
-    frame[18] = 0x08;                              /* CS = kernel code */
-    frame[19] = 0x202;                             /* RFLAGS */
-    frame[20] = (uint64_t)frame;                   /* RSP (unused) */
-    frame[21] = 0x10;                              /* SS = kernel data */
+    uint64_t *stk = (uint64_t *)t->kernel_stack - 7; /* 6 callee‑saved + return address */
+    stk[0] = 0;   /* r15 */
+    stk[1] = 0;   /* r14 */
+    stk[2] = 0;   /* r13 */
+    stk[3] = 0;   /* r12 */
+    stk[4] = 0;   /* rbx */
+    stk[5] = 0;   /* rbp */
+    stk[6] = (uint64_t)entry;   /* return address */
 
-    t->rsp   = (uint64_t)frame;
+    t->rsp   = (uint64_t)stk;
     t->state = THREAD_STATE_READY;
     scheduler_add_thread(t);
     return t;
@@ -166,7 +162,6 @@ void schedule(void) {
 
     if (next->cr3 != kernel_cr3) {
         tss_set_rsp0(next->kernel_stack);
-        /* tss_set_io_bitmap would go here once we enable it */
     }
 
     thread_t *prev = current_thread;
