@@ -181,7 +181,7 @@ void _start(void) {
     serial_write("[boot] Preemptive scheduler started.\n");
     enable_interrupts();
 
-    for (;;) __asm__ volatile ("hlt")
+    for (;;) __asm__ volatile ("hlt");
 
         /* Load init as the first user process */
     size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
