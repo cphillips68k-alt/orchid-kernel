@@ -23,11 +23,11 @@ extern uint8_t _binary_shell_bin_end[];
 static struct {
     const char *name;
     uint8_t *start;
-    size_t size;
+    uint8_t *end;
 } embedded_binaries[] = {
-    {"init",  _binary_init_bin_start, (size_t)(_binary_init_bin_end - _binary_init_bin_start)},
-    {"shell", _binary_shell_bin_start,(size_t)(_binary_shell_bin_end - _binary_shell_bin_start)},
-    {NULL, NULL, 0}
+    {"init",  _binary_init_bin_start,  _binary_init_bin_end},
+    {"shell", _binary_shell_bin_start, _binary_shell_bin_end},
+    {NULL, NULL, NULL}
 };
 
 static int strcmp(const char *a, const char *b) {
@@ -163,9 +163,10 @@ void syscall_handler(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3,
             name[31] = '\0';
             for (int i = 0; embedded_binaries[i].name; i++) {
                 if (strcmp(name, embedded_binaries[i].name) == 0) {
-                    if (embedded_binaries[i].size <= a3) {
-                        copy_to_user(a2, embedded_binaries[i].start, embedded_binaries[i].size);
-                        syscall_retval = embedded_binaries[i].size;
+                    size_t size = (size_t)(embedded_binaries[i].end - embedded_binaries[i].start);
+                    if (size <= a3) {
+                        copy_to_user(a2, embedded_binaries[i].start, size);
+                        syscall_retval = size;
                     } else {
                         syscall_retval = (uint64_t)-2;
                     }

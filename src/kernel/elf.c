@@ -35,9 +35,9 @@ typedef struct {
 } __attribute__((packed)) elf64_phdr_t;
 
 #define PT_LOAD 1
-#define PF_R 4
-#define PF_W 2
-#define PF_X 1
+#define PF_R    4
+#define PF_W    2
+#define PF_X    1
 
 extern uint64_t hhdm_offset;
 extern uint64_t kernel_cr3;
@@ -54,8 +54,7 @@ static void memset(void *s, int c, size_t n) {
     for (size_t i = 0; i < n; i++) p[i] = c;
 }
 
-/* Load ELF into an existing process, replacing its address space.
-   Returns a new thread that will execute the entry point. */
+/* Load ELF segments into a process's address space and create a thread */
 static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data, size_t elf_size) {
     (void)elf_size;
     const elf64_ehdr_t *ehdr = (const elf64_ehdr_t *)elf_data;
@@ -63,19 +62,19 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
     if (ehdr->e_ident[0] != 0x7F || ehdr->e_ident[1] != 'E' ||
         ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F')
         return NULL;
+
     if (ehdr->e_ident[4] != 2 || ehdr->e_machine != 0x3E)
         return NULL;
 
-    /* Allocate new PML4 for the process */
     uint64_t pml4_phys = pmm_alloc_page();
     if (!pml4_phys) return NULL;
+
     uint64_t *pml4 = (uint64_t *)(pml4_phys + hhdm_offset);
     memset(pml4, 0, PAGE_SIZE);
 
     uint64_t *old_pml4 = (uint64_t *)(kernel_cr3 + hhdm_offset);
     for (int i = 256; i < 512; i++) pml4[i] = old_pml4[i];
 
-    /* Parse program headers and map segments */
     const elf64_phdr_t *phdrs = (const elf64_phdr_t *)(elf_data + ehdr->e_phoff);
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdrs[i].p_type != PT_LOAD) continue;
@@ -86,13 +85,14 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
         for (uint64_t vaddr = virt_start; vaddr < virt_end; vaddr += PAGE_SIZE) {
             uint64_t phys = pmm_alloc_page();
             if (!phys) return NULL;
+
             uint64_t flags = VMM_PRESENT | VMM_USER;
             if (phdrs[i].p_flags & PF_W) flags |= VMM_WRITABLE;
             vmm_map_user(pml4_phys, vaddr, phys, flags, 1);
 
-            uint64_t file_addr = phdrs[i].p_vaddr;
-            uint64_t page_start = vaddr;
-            uint64_t page_end   = vaddr + PAGE_SIZE;
+            uint64_t file_addr   = phdrs[i].p_vaddr;
+            uint64_t page_start  = vaddr;
+            uint64_t page_end    = vaddr + PAGE_SIZE;
 
             if (page_start < file_addr) page_start = file_addr;
             if (page_end > file_addr + phdrs[i].p_filesz)
@@ -119,7 +119,7 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
     vmm_map_user(pml4_phys, 0x800000000000, stack_phys,
                  VMM_PRESENT | VMM_USER | VMM_WRITABLE, 1);
 
-    /* Create kernel thread for this process */
+    /* Create kernel thread that will iret to the new process */
     thread_t *t = kmalloc(sizeof(thread_t));
     if (!t) return NULL;
     void *kstack = kmalloc(4096);
@@ -130,47 +130,51 @@ static thread_t *load_elf_into_process(process_t *proc, const uint8_t *elf_data,
     t->process = proc;
 
     uint64_t *stk = (uint64_t *)t->kernel_stack - 5;
-    stk[0] = 0x23;
-    stk[1] = 0x800000000000 + 4096;
-    stk[2] = 0x202;
-    stk[3] = 0x1B;
-    stk[4] = ehdr->e_entry;
+    stk[0] = 0x23;                     /* SS  = user data seg */
+    stk[1] = 0x800000000000 + 4096;   /* RSP = top of stack */
+    stk[2] = 0x202;                   /* RFLAGS */
+    stk[3] = 0x1B;                    /* CS  = user code seg */
+    stk[4] = ehdr->e_entry;           /* RIP = entry point */
     stk -= 2;
-    stk[0] = 0; stk[1] = 0;
+    stk[0] = 0; stk[1] = 0;           /* int_no, err_code */
     stk -= 15;
     for (int j = 0; j < 15; j++) stk[j] = 0;
 
     t->rsp = (uint64_t)stk;
     t->state = THREAD_STATE_READY;
 
-    /* Update process's page table */
     proc->pml4_phys = pml4_phys;
     proc->main_thread = t;
-
     return t;
 }
 
 int elf_load(const uint8_t *elf_data, size_t elf_size) {
-    /* Create a brand new process */
     process_t *proc = kmalloc(sizeof(process_t));
     if (!proc) return -1;
-    proc->pid = next_pid++;   /* need access to next_pid from proc.c, we'll expose it later */
-    static uint64_t pid_counter = 2; /* hack: we'll use a local static for now */
-    proc->pid = pid_counter++;
+
+    proc->pid = proc_alloc_pid();
     proc->next = NULL;
-    current_process = proc;   /* set for the new process */
+    current_process = proc;
 
     thread_t *t = load_elf_into_process(proc, elf_data, elf_size);
-    if (!t) { kfree(proc); return -1; }
+    if (!t) {
+        kfree(proc);
+        return -1;
+    }
+
     scheduler_add_thread(t);
-    return proc->pid;
+    return (int)proc->pid;
 }
 
 void sys_exec(const uint8_t *elf_data, size_t elf_size) {
     if (!current_process) return;
     thread_t *new_thread = load_elf_into_process(current_process, elf_data, elf_size);
     if (!new_thread) return;
+
+    /* Replace the process's main thread with the new one */
+    current_process->main_thread = new_thread;
     scheduler_add_thread(new_thread);
-    /* The old thread will exit; the new thread will take over the process. */
+
+    /* The old thread will exit; the new thread will run. */
     thread_exit();
 }

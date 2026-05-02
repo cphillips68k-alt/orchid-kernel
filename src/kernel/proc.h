@@ -12,8 +12,10 @@ typedef struct process {
 
 extern process_t *current_process;
 
-void proc_init(void);
-void proc_set_current(process_t *p);
+void  proc_init(void);
+void  proc_set_current(process_t *p);
 uint64_t sys_fork(void);
-void proc_exit(void);
+void  proc_exit(void);
+uint64_t proc_alloc_pid(void);
+
 #endif
