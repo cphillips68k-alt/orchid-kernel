@@ -153,6 +153,30 @@ void vmm_map_user(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t fla
     spin_unlock(&vmm_lock);
 }
 
+uint64_t user_virt_to_phys(uint64_t pml4_phys, uint64_t virt) {
+    spin_lock(&vmm_lock);
+    uint64_t *pml4_virt = phys_to_virt(pml4_phys);
+
+    int pml4_i = PML4_INDEX(virt);
+    if (!(pml4_virt[pml4_i] & 1)) { spin_unlock(&vmm_lock); return 0; }
+
+    uint64_t *pdpt = phys_to_virt(entry_get_addr(pml4_virt[pml4_i]));
+    int pdpt_i = PDPT_INDEX(virt);
+    if (!(pdpt[pdpt_i] & 1)) { spin_unlock(&vmm_lock); return 0; }
+
+    uint64_t *pd = phys_to_virt(entry_get_addr(pdpt[pdpt_i]));
+    int pd_i = PD_INDEX(virt);
+    if (!(pd[pd_i] & 1)) { spin_unlock(&vmm_lock); return 0; }
+
+    uint64_t *pt = phys_to_virt(entry_get_addr(pd[pd_i]));
+    int pt_i = PT_INDEX(virt);
+    if (!(pt[pt_i] & 1)) { spin_unlock(&vmm_lock); return 0; }
+
+    uint64_t phys = entry_get_addr(pt[pt_i]) | (virt & 0xFFF);
+    spin_unlock(&vmm_lock);
+    return phys;
+}
+
 /* --- Kernel heap (unchanged) --- */
 #define HEAP_START_VIRT 0xFFFFF00000000000
 #define HEAP_INITIAL_PAGES 16

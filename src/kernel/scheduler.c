@@ -9,21 +9,20 @@
 #define STACK_SIZE 4096
 
 extern uint64_t kernel_cr3;
+extern struct process *current_process;   /* from proc.h */
 
 static spinlock_t sched_lock = 0;
 thread_t *current_thread = NULL;
 static thread_t *ready_queue = NULL;
 
 static void idle_thread(void) {
-    for (;;) {
-        __asm__ volatile ("sti; hlt");
-    }
+    for (;;) { __asm__ volatile ("sti; hlt"); }
 }
 
 extern void __switch_to(thread_t *old, thread_t *new, uint64_t new_cr3);
 
 void scheduler_init(void) {
-    thread_t *idle = thread_create(idle_thread, "idle", kernel_cr3);
+    thread_t *idle = thread_create(idle_thread, "idle", kernel_cr3, NULL);
     if (!idle) {
         serial_write("[SCHED] Failed to create idle thread\n");
         return;
@@ -32,27 +31,21 @@ void scheduler_init(void) {
     current_thread = idle;
 }
 
-thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3) {
+thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3, struct process *proc) {
     (void)name;
-
     thread_t *t = kmalloc(sizeof(thread_t));
     if (!t) return NULL;
-
     void *stack = kmalloc(STACK_SIZE);
-    if (!stack) {
-        kfree(t);
-        return NULL;
-    }
+    if (!stack) { kfree(t); return NULL; }
 
     t->kernel_stack = (uint64_t)stack + STACK_SIZE;
     t->cr3 = cr3;
-    t->iopl = 0;               /* default: no I/O ports */
+    t->iopl = 0;
+    t->process = proc;
 
     uint64_t *frame = (uint64_t *)t->kernel_stack - 22;
     for (int i = 0; i < 15; i++) frame[i] = 0;
-    frame[15] = 0;
-    frame[16] = 0;
-
+    frame[15] = 0; frame[16] = 0;
     frame[17] = (uint64_t)entry;
     frame[18] = 0x08;
     frame[19] = 0x202;
@@ -61,7 +54,6 @@ thread_t *thread_create(void (*entry)(void), const char *name, uint64_t cr3) {
 
     t->rsp = (uint64_t)frame;
     t->state = THREAD_STATE_READY;
-
     scheduler_add_thread(t);
     return t;
 }
@@ -102,17 +94,10 @@ void thread_unblock(thread_t *t) {
 
 void schedule(void) {
     spin_lock(&sched_lock);
-
-    if (!current_thread) {
-        spin_unlock(&sched_lock);
-        return;
-    }
+    if (!current_thread) { spin_unlock(&sched_lock); return; }
 
     thread_t *next = ready_queue;
-    if (!next) {
-        spin_unlock(&sched_lock);
-        return;
-    }
+    if (!next) { spin_unlock(&sched_lock); return; }
 
     ready_queue = next->next;
 
@@ -130,7 +115,6 @@ void schedule(void) {
 
     next->state = THREAD_STATE_RUNNING;
 
-    /* User thread handling */
     if (next->cr3 != kernel_cr3) {
         tss_set_rsp0(next->kernel_stack);
         tss_set_io_bitmap(next->iopl == 3);
@@ -140,14 +124,14 @@ void schedule(void) {
     uint64_t new_cr3 = next->cr3;
     current_thread = next;
 
-    spin_unlock(&sched_lock);
+    if (next->process)
+        current_process = next->process;
 
+    spin_unlock(&sched_lock);
     __switch_to(prev, next, new_cr3);
 }
 
-void enable_interrupts(void) {
-    __asm__ volatile ("sti");
-}
+void enable_interrupts(void) { __asm__ volatile ("sti"); }
 
 void scheduler_add_thread(thread_t *t) {
     spin_lock(&sched_lock);

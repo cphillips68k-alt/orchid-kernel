@@ -3,6 +3,7 @@
 #include "vmm.h"
 #include "serial.h"
 #include "sync.h"
+#include "scheduler.h"
 #include <stddef.h>
 
 extern uint64_t kernel_cr3;
@@ -37,6 +38,7 @@ uint64_t sys_fork(void) {
     for (int i=0; i<512; i++) new_pml4[i] = old_pml4[i];
     child->pml4_phys = new_pml4_phys;
 
+    /* Deep copy user pages */
     for (int pml4_i=0; pml4_i<256; pml4_i++) {
         if (!(old_pml4[pml4_i] & 1)) continue;
         uint64_t *old_pdpt = (uint64_t*)((old_pml4[pml4_i] & 0xFFFFFFFFFF000) + hhdm_offset);
@@ -64,13 +66,14 @@ uint64_t sys_fork(void) {
         }
     }
 
+    /* Create child thread */
     thread_t *parent_thread = current_process->main_thread;
     uint64_t parent_rip = ((uint64_t*)parent_thread->rsp)[17];
-    thread_t *child_thread = thread_create(NULL, "child", new_pml4_phys);
+    thread_t *child_thread = thread_create(NULL, "child", new_pml4_phys, child);
     if (!child_thread) { spin_unlock(&proc_lock); return -1; }
     uint64_t *cframe = (uint64_t*)child_thread->rsp;
     cframe[17] = parent_rip;
-    cframe[7]  = 0;
+    cframe[7]  = 0;   /* fork returns 0 to child */
     child->main_thread = child_thread;
     child->next = process_list;
     process_list = child;

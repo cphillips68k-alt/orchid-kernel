@@ -12,6 +12,7 @@ void vmm_init(void);
 void vmm_map(uint64_t virt, uint64_t phys, uint64_t flags);
 void vmm_unmap(uint64_t virt);
 uint64_t vmm_virt_to_phys(uint64_t virt);
+uint64_t user_virt_to_phys(uint64_t pml4_phys, uint64_t virt);
 void vmm_map_user(uint64_t pml4_phys, uint64_t virt, uint64_t phys, uint64_t flags, int is_user);
 
 void *kmalloc(size_t size);

@@ -18,6 +18,7 @@
 #include "proc.h"
 #include "irq.h"
 #include "elf.h"
+#include "kbd_buf.h"
 
 extern volatile struct limine_framebuffer_request framebuffer_request;
 extern volatile struct limine_memmap_request memmap_request;
@@ -114,12 +115,12 @@ void _start(void) {
 
     serial_init();
     serial_write("\n========================================\n");
-    serial_write("Orchid Microkernel v0.3.0 (ELF loader)\n");
+    serial_write("Orchid Microkernel v0.4.0 (shell-ready)\n");
     serial_write("========================================\n\n");
 
     if (fb != NULL) {
         console_init(fb);
-        console_write("Orchid Microkernel v0.3.0\n========================\n");
+        console_write("Orchid Microkernel v0.4.0\n========================\n");
         console_printf("Framebuffer: %dx%d, BPP: %d\n", fb->width, fb->height, fb->bpp);
     } else {
         serial_write("[boot] No framebuffer available\n");
@@ -148,6 +149,7 @@ void _start(void) {
     tss_init();
 
     irq_init();
+    kbd_buf_init();
     proc_init();
 
     __asm__ volatile (
@@ -160,10 +162,10 @@ void _start(void) {
 
     uint64_t krnl_cr3;
     __asm__ volatile ("mov %%cr3, %0" : "=r"(krnl_cr3));
-    thread_create(thread_a, "thread_a", krnl_cr3);
-    thread_create(thread_b, "thread_b", krnl_cr3);
-    thread_create(echo_service, "echo_svc", krnl_cr3);
-    thread_create(echo_client, "echo_cli", krnl_cr3);
+    thread_create(thread_a, "thread_a", krnl_cr3, NULL);
+    thread_create(thread_b, "thread_b", krnl_cr3, NULL);
+    thread_create(echo_service, "echo_svc", krnl_cr3, NULL);
+    thread_create(echo_client, "echo_cli", krnl_cr3, NULL);
 
     /* Load init as the first user process */
     size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
