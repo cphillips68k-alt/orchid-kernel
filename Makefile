@@ -14,7 +14,7 @@ C_SRC = src/kernel/main.c src/kernel/serial.c src/kernel/console.c \
         src/kernel/isr_handler.c src/kernel/scheduler.c src/kernel/pit.c \
         src/kernel/pmm.c src/kernel/vmm.c src/kernel/tss.c src/kernel/ipc.c \
         src/kernel/bus.c src/kernel/syscalls.c src/kernel/timer.c \
-        src/kernel/user.c src/kernel/proc.c src/kernel/irq.c src/kernel/elf.c \
+        src/kernel/proc.c src/kernel/irq.c src/kernel/elf.c \
         src/kernel/kbd_buf.c
 
 USER_SRC = src/user/kbd.c src/user/vfs.c
