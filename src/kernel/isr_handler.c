@@ -30,13 +30,9 @@ void isr_handler(struct regs *r) {
     }
 
     if (r->int_no == 32) {
-        static int first_tick = 1;
-        if (first_tick) {
-            serial_write("[ISR] First timer tick received\n");
-            first_tick = 0;
-        }
         timer_tick();
         schedule();
+        return;
     }
 
     if (r->int_no == 33) {
@@ -52,7 +48,10 @@ void isr_handler(struct regs *r) {
         return;
     }
 
+    /* Generic IRQ handler for all other interrupts */
     if (r->int_no >= 32 && r->int_no <= 47) {
+        uint8_t irq = r->int_no - 32;
+        irq_handler(irq);
         if (r->int_no >= 40)
             __asm__ volatile ("outb %%al, $0xA0" : : "a"(0x20));
         __asm__ volatile ("outb %%al, $0x20" : : "a"(0x20));

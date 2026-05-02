@@ -23,7 +23,6 @@ static void memset(void *s, int c, size_t n) {
     for (size_t i = 0; i < n; i++) p[i] = c;
 }
 
-/* Create a new user process from a raw binary */
 static thread_t *load_raw(const uint8_t *data, size_t size, process_t *proc) {
     serial_printf("[ELF] Loading raw binary: size=%d\n", size);
 
@@ -33,11 +32,9 @@ static thread_t *load_raw(const uint8_t *data, size_t size, process_t *proc) {
     uint64_t *pml4 = (uint64_t *)(pml4_phys + hhdm_offset);
     memset(pml4, 0, PAGE_SIZE);
 
-    /* Copy kernel higher‑half mappings */
     uint64_t *old_pml4 = (uint64_t *)(kernel_cr3 + hhdm_offset);
     for (int i = 256; i < 512; i++) pml4[i] = old_pml4[i];
 
-    /* Map user code pages */
     uint64_t vaddr = USER_CODE_VADDR;
     const uint8_t *src = data;
     size_t left = size;
@@ -57,7 +54,6 @@ static thread_t *load_raw(const uint8_t *data, size_t size, process_t *proc) {
         left  -= chunk;
     }
 
-    /* Allocate user stack */
     uint64_t stack_phys = pmm_alloc_page();
     if (!stack_phys) return NULL;
     vmm_map_user(pml4_phys, USER_STACK_VADDR, stack_phys,
@@ -65,7 +61,6 @@ static thread_t *load_raw(const uint8_t *data, size_t size, process_t *proc) {
 
     proc->pml4_phys = pml4_phys;
 
-    /* Create the thread that will launch the user process */
     thread_t *t = thread_create_user(USER_CODE_VADDR,
                                      USER_STACK_VADDR + PAGE_SIZE,
                                      pml4_phys, proc);
@@ -78,7 +73,7 @@ int elf_load(const uint8_t *data, size_t size) {
 
     proc->pid = proc_alloc_pid();
     proc->next = NULL;
-    // current_process = proc;
+    /* current_process will be set by the scheduler */
 
     thread_t *t = load_raw(data, size, proc);
     if (!t) {

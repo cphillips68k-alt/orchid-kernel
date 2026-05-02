@@ -1,5 +1,6 @@
 #include "syscalls.h"
 #include "serial.h"
+#include "console.h"
 #include "scheduler.h"
 #include "timer.h"
 #include "proc.h"
@@ -36,6 +37,13 @@ static int strcmp(const char *a, const char *b) {
     return *a - *b;
 }
 
+/*
+ * Copy data FROM kernel TO user space.
+ * uaddr: user virtual address
+ * kdata: kernel source buffer
+ * len:   bytes to copy
+ * Returns 0 on success, -1 if any page is not mapped.
+ */
 static int copy_to_user(uint64_t uaddr, const void *kdata, size_t len) {
     if (!current_process) return -1;
     while (len) {
@@ -57,6 +65,13 @@ static int copy_to_user(uint64_t uaddr, const void *kdata, size_t len) {
     return 0;
 }
 
+/*
+ * Copy data FROM user space TO kernel.
+ * kdest: kernel destination buffer
+ * uaddr: user virtual address
+ * len:   bytes to copy
+ * Returns 0 on success, -1 if any page is not mapped.
+ */
 static int copy_from_user(void *kdest, uint64_t uaddr, size_t len) {
     if (!current_process) return -1;
     while (len) {
@@ -78,9 +93,13 @@ static int copy_from_user(void *kdest, uint64_t uaddr, size_t len) {
     return 0;
 }
 
+/* Write a kernel buffer to the console / serial. */
 static uint64_t do_write(uint64_t fd, const char *buf, uint64_t count) {
     if (fd == 1 || fd == 2) {
-        for (uint64_t i = 0; i < count; i++) serial_putc(buf[i]);
+        for (uint64_t i = 0; i < count; i++) {
+            serial_putc(buf[i]);
+            console_putc(buf[i]);    /* also write to framebuffer */
+        }
         return count;
     }
     return 0;
@@ -101,9 +120,11 @@ static void do_nanosleep(uint64_t nanoseconds) {
 void syscall_handler(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3,
                      uint64_t a4, uint64_t a5, uint64_t a6) {
     (void)a4; (void)a5; (void)a6;
+
     switch (nr) {
         case SYS_read:
             if (a1 == 0) {
+                /* stdin: read one character from keyboard buffer */
                 char c = kbd_buf_get();
                 if (copy_to_user(a2, &c, 1) == 0)
                     syscall_retval = 1;
@@ -114,12 +135,20 @@ void syscall_handler(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3,
             }
             break;
 
-        case SYS_write:
-            syscall_retval = do_write(a1, (const char *)a2, a3);
+        case SYS_write: {
+            /* a1=fd, a2=user buffer, a3=count */
+            uint64_t count = a3;
+            if (count > 4096) count = 4096;    /* sanity limit */
+            char kbuf[4096];
+            if (copy_from_user(kbuf, a2, count) == 0)
+                syscall_retval = do_write(a1, kbuf, count);
+            else
+                syscall_retval = (uint64_t)-1;
             break;
+        }
 
         case SYS_open:
-            syscall_retval = 10;
+            syscall_retval = 10;   /* dummy fd */
             break;
 
         case SYS_close:
@@ -153,21 +182,45 @@ void syscall_handler(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3,
             syscall_retval = irq_register((uint8_t)a1, a2);
             break;
 
-        case SYS_exec:
-            sys_exec((const uint8_t *)a1, a2);
-            syscall_retval = 0;
+        case SYS_exec: {
+            /* a1 = user pointer to binary data, a2 = size */
+            uint64_t size = a2;
+            if (size > 1024 * 1024) {   /* 1 MB sanity limit */
+                syscall_retval = (uint64_t)-1;
+                break;
+            }
+            uint8_t *kbuf = kmalloc(size);
+            if (!kbuf) {
+                syscall_retval = (uint64_t)-1;
+                break;
+            }
+            if (copy_from_user(kbuf, a1, size) == 0) {
+                sys_exec(kbuf, size);
+                syscall_retval = 0;
+            } else {
+                syscall_retval = (uint64_t)-1;
+            }
+            kfree(kbuf);
             break;
+        }
 
         case SYS_get_binary: {
+            /* a1 = user pointer to name, a2 = user buffer, a3 = max size */
             char name[32];
-            copy_from_user(name, a1, sizeof(name) - 1);
+            if (copy_from_user(name, a1, sizeof(name) - 1) != 0) {
+                syscall_retval = (uint64_t)-1;
+                break;
+            }
             name[31] = '\0';
             for (int i = 0; embedded_binaries[i].name; i++) {
                 if (strcmp(name, embedded_binaries[i].name) == 0) {
                     size_t size = (size_t)(embedded_binaries[i].end - embedded_binaries[i].start);
                     if (size <= a3) {
-                        copy_to_user(a2, embedded_binaries[i].start, size);
-                        syscall_retval = size;
+                        if (copy_to_user(a2, embedded_binaries[i].start, size) == 0) {
+                            syscall_retval = size;
+                        } else {
+                            syscall_retval = (uint64_t)-2;
+                        }
                     } else {
                         syscall_retval = (uint64_t)-2;
                     }
