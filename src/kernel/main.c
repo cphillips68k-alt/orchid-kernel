@@ -77,9 +77,7 @@ void echo_service(void) {
 }
 
 void echo_client(void) {
-    // Wait longer for the echo service to start
-    for (volatile int i = 0; i < 5000000; i++);  // 5x longer delay
-    
+    for (volatile int i = 0; i < 5000000; i++);
     int port = bus_lookup("echo");
     if (port < 0) {
         serial_write("Echo service not found!\n");
@@ -164,26 +162,20 @@ void _start(void) {
     __asm__ volatile ("mov %%cr3, %0" : "=r"(krnl_cr3));
 
     thread_t *t;
+
+    t = thread_create(echo_service, "echo_svc", krnl_cr3, NULL);
+    if (!t) serial_write("[boot] Failed to create echo_svc\n");
+
     t = thread_create(thread_a, "thread_a", krnl_cr3, NULL);
     if (!t) serial_write("[boot] Failed to create thread_a\n");
 
     t = thread_create(thread_b, "thread_b", krnl_cr3, NULL);
     if (!t) serial_write("[boot] Failed to create thread_b\n");
 
-    t = thread_create(echo_service, "echo_svc", krnl_cr3, NULL);
-    if (!t) serial_write("[boot] Failed to create echo_svc\n");
-
     t = thread_create(echo_client, "echo_cli", krnl_cr3, NULL);
     if (!t) serial_write("[boot] Failed to create echo_cli\n");
 
-    /* TODO: Load init user process once fork/exec is fixed */
-
-    serial_write("[boot] Preemptive scheduler started.\n");
-    enable_interrupts();
-
-    for (;;) __asm__ volatile ("hlt");
-
-        /* Load init as the first user process */
+    /* Load init as the first user process */
     size_t init_size = _binary_init_bin_end - _binary_init_bin_start;
     int init_pid = elf_load(_binary_init_bin_start, init_size);
     if (init_pid < 0)
@@ -195,5 +187,4 @@ void _start(void) {
     enable_interrupts();
 
     for (;;) __asm__ volatile ("hlt");
-
 }
