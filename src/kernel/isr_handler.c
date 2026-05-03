@@ -32,7 +32,7 @@ void isr_handler(struct regs *r) {
     if (r->int_no == 32) {
         timer_tick();
         schedule();
-        return;
+        /* Fall through to send EOI — do NOT return early */
     }
 
     if (r->int_no == 33) {
@@ -44,11 +44,13 @@ void isr_handler(struct regs *r) {
             char ch = scancode_to_ascii(sc);
             if (ch) kbd_buf_put(ch);
         }
+        /* Keyboard EOI must be sent before the generic handler,
+           because it accesses the PIC directly. */
         __asm__ volatile ("outb %%al, $0x20" : : "a"(0x20));
         return;
     }
 
-    /* Generic IRQ handler for all other interrupts */
+    /* Generic handler for all other IRQs */
     if (r->int_no >= 32 && r->int_no <= 47) {
         uint8_t irq = r->int_no - 32;
         irq_handler(irq);
